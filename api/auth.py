@@ -1,147 +1,270 @@
-from fastapi import APIRouter, Request, Depends, HTTPException, Response
+from fastapi import APIRouter, Request, Depends, HTTPException, Response, Body
 import requests
 from sqlalchemy.orm import Session
 from core.database import get_db
-from auth.firebase import create_access_token, create_refresh_token
+from utils.security import create_access_token, create_refresh_token
 from models.users import User
 from utils.security import verify_jwt_token
 from firebase_admin import auth
 from crud.user import get_user_by_uid
 import uuid
 from fastapi.responses import JSONResponse
-import jwt
-from datetime import datetime, timedelta
+from auth import firebase 
 from pydantic import BaseModel
 import os
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import Response
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+
+class CodeRequest(BaseModel):
+    code: str
 
 router = APIRouter(prefix="/auth")
 
+@router.post("/kakao/token")
+def kakao_login(body: CodeRequest, response : Response,db: Session = Depends(get_db)):
+    code = body.code
+    client_id = os.getenv("KAKAO_CLIENT_ID")
+    redirect_uri = os.getenv("KAKAO_REDIRECT_URI")
+    client_secret = os.getenv("KAKAO_CLIENT_SECRET")
 
-@router.post('/firebase-login') 
-async def firebase_login(request: Request, db: Session = Depends(get_db)):
-    # ✅ 헤더에서 Authorization 토큰 꺼내기
-    token = request.headers.get("Authorization")
-    if not token or not token.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="No token provided")
+    # 카카오 인증
+    token_response = requests.post(
+        "https://kauth.kakao.com/oauth/token",
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        data={
+            "grant_type": "authorization_code",
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "client_secret" : client_secret,
+            "code": code,
+        },
+    )
 
-    kakao_token = token.split(" ")[1]
+    token_json = token_response.json()
+    kakao_access_token = token_json.get("access_token")
 
-    # ✅ 카카오 유저 정보 요청
+    # 카카오 유저 정보 획득
     kakao_user_info_res = requests.get(
         "https://kapi.kakao.com/v2/user/me",
-        headers={"Authorization": f"Bearer {kakao_token}"}
+        headers={"Authorization": f"Bearer {kakao_access_token}"}
     )
-    
-    if kakao_user_info_res.status_code != 200:
-        raise HTTPException(status_code=400, detail="카카오 유저 정보 조회 실패")
+    user_info = kakao_user_info_res.json()
+    user_id = user_info["id"]
+    user_name = user_info["properties"]["nickname"]
+    user_profile_image = user_info["properties"]["profile_image"]
 
-    kakao_user = kakao_user_info_res.json()
-    print("kakao USer", kakao_user)
-    kakao_id = kakao_user.get("id")
-    kakao_name = kakao_user.get("properties", {}).get('nickname', "")
-    kakao_profile_image = kakao_user.get("properties", {}).get("profile_image", "")
-
-    if not kakao_id:
-        raise HTTPException(status_code=400, detail="카카오 ID 누락")
-
-    # ✅ Firebase 커스텀 토큰 생성
-    uid = f"kakao:{kakao_id}"
+    uid = f"kakao:{user_id}"
     try:
         firebase_custom_token = auth.create_custom_token(uid)
+        print("firbase_suctom_token", firebase_custom_token)
     except Exception as e:
+        # --- 상세 에러 확인을 위한 코드 추가 ---
+        print(f"!!!!!!!! Firebase Custom Token 생성 중 오류 발생 !!!!!!!!!!")
+        print(f"오류 타입: {type(e)}")
+        print(f"오류 메시지: {e}")
+        import traceback # Traceback 모듈 import
+        traceback.print_exc() # 전체 Traceback 출력 (어디서 오류났는지 상세히 보여줌)
         raise HTTPException(status_code=500, detail=f"Firebase 토큰 생성 실패: {str(e)}")
     
 
-    return {
-        "firebase_token" : firebase_custom_token,
-        "kakao_user": {
-            "name": kakao_name,
-            "profile_image":  kakao_profile_image
-        }
-    }
-    
-@router.post('/server-login')
-async def server_login(request: Request, response: Response, db: Session = Depends(get_db)):
-    token = request.headers.get("Authorization")
-    if not token or not token.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="토큰 없음")
-    
-    id_token = token.split(" ")[1]
-
-    body = await request.json()
-    kakao_user = body.get("kakao_user", {})
-    user_name = kakao_user.get("name", "")
-    user_profile_image = kakao_user.get("profile_image", "")
-
-    try:
-        decoded_token = auth.verify_id_token(id_token)
-        uid = decoded_token["uid"]
-
-        # Firebase에 유저 있는지 확인
-        try:
-            firebase_user = auth.get_user(uid)
-        except auth.UserNotFoundError:
-            firebase_user = auth.create_user(uid=uid)
-
-        # 서버 DB에서 유저 조회 (먼저 실행)
-        user = db.query(User).filter(User.uid == uid).first()
-        
-        if not user:
-            user = User(
-                id=str(uuid.uuid4()),
-                uid=uid,
-                name=user_name,
-                profile_image=user_profile_image
-            )
-            db.add(user)
-            db.commit()
-        
-        # 토큰 발급 (유저 정보가 있는 후에)
-        access_token = create_access_token(user)
-        refresh_token = create_refresh_token(user)
-        
-        # 리프레시 토큰 DB에 저장
-        user.refresh_token = refresh_token
-        db.commit()
-        
-        print(f"액세스 토큰 설정: {access_token}...")
-        print(f"리프레시 토큰 설정: {refresh_token}...")
-        
-        # HttpOnly 쿠키에 액세스 토큰 설정
-        response.set_cookie(key="access_cookie", value=access_token, httponly=True,secure=True, samesite="none", max_age=86400, path='/')
-        
-        # 리프레시 토큰도 쿠키에 설정 (더 긴 수명)
-
-
-        print("쿠키 설정 완료")
-
-        # 응답에는 토큰을 포함하지 않고 사용자 정보만 반환
-        return {
-                "user": {
-                    "name": user_name,
-                    "profile_image": user_profile_image
-                },
-                "status_code":200,
+    firebase_res = requests.post(
+        "https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken",
+        params={"key": os.getenv("FIREBASE_API_KEY")},
+        json={
+            "token": firebase_custom_token.decode("utf-8"),
+            "returnSecureToken": True
             }
- 
+    )
     
-    except Exception as e:
-        print("인증 에러:", str(e))
-        raise HTTPException(status_code=401, detail=str(e))
+    if firebase_res.status_code != 200:
+        raise HTTPException(status_code=500, detail="Firebase 인증 실패")
 
+    firebase_data = firebase_res.json()
+    print("firebase_data", firebase_data["idToken"])
+
+    if firebase_data["isNewUser"] == True:
+        user = User(
+                    id=str(uuid.uuid4()),
+                    uid=uid,
+                    name=user_name,
+                    profile_image=user_profile_image,
+                    
+                )
+        db.add(user)
+        db.commit()
+    else : 
+        user = db.query(User).filter(User.uid == uid).first()
+
+    # 토큰 발급 (유저 정보가 있는 후에)
+    access_token = create_access_token(user)
+    refresh_token = create_refresh_token(user)
+
+    response.set_cookie(
+    key="access_cookie",
+    value=access_token,
+    httponly=True,
+    secure=False,           # ✅ 로컬 개발에서는 False
+    samesite="lax",         # ✅ 기본값으로
+    max_age=86400,
+    path='/'
+    )
+
+    user.refresh_token = refresh_token
+    db.commit()
+
+
+    return {"access_token": user_info}
+
+    
+# 
 
 @router.get("/me")
-async def get_me(request: Request):
-    print("실행된다")
-    access_cookie = request.cookies.get("access_cookie")
-    if not access_cookie:
-        raise HTTPException(status_code=401, detail="쿠키 없음")
+def get_current_user(request: Request, db: Session = Depends(get_db)):
+    token = request.cookies.get("access_cookie")
+    print("token", token)
+    
+    if not token:
+        raise HTTPException(status_code=401, detail="Access token missing")
 
-    # 여기선 간단히 토큰 디코딩 없이 쿠키 존재 여부만 반환해도 됨
-    return JSONResponse(content={"message": "인증됨", "token": access_cookie})
+    try:
+        payload = verify_jwt_token(token)  # JWT 검증
+        user_id = payload.get("sub")       # JWT에 저장된 user.id
+    except Exception as e:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    user = db.query(User).filter(User.uid == user_id).first()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return {
+        "user": {
+            "name": user.name,
+            "profile_image": user.profile_image
+        }
+    }
+
+@router.post("/logout")
+def logout(response: Response):
+    response.delete_cookie("access_cookie")
+    return {"message": "로그아웃 완료"}
+
+# @router.post('/firebase-login') 
+# async def firebase_login(request: Request, db: Session = Depends(get_db)):
+#     # ✅ 헤더에서 Authorization 토큰 꺼내기
+#     token = request.headers.get("Authorization")
+#     if not token or not token.startswith("Bearer "):
+#         raise HTTPException(status_code=401, detail="No token provided")
+
+#     kakao_token = token.split(" ")[1]
+
+#     # ✅ 카카오 유저 정보 요청
+#     kakao_user_info_res = requests.get(
+#         "https://kapi.kakao.com/v2/user/me",
+#         headers={"Authorization": f"Bearer {kakao_token}"}
+#     )
+    
+#     if kakao_user_info_res.status_code != 200:
+#         raise HTTPException(status_code=400, detail="카카오 유저 정보 조회 실패")
+
+#     kakao_user = kakao_user_info_res.json()
+#     print("kakao USer", kakao_user)
+#     kakao_id = kakao_user.get("id")
+#     kakao_name = kakao_user.get("properties", {}).get('nickname', "")
+#     kakao_profile_image = kakao_user.get("properties", {}).get("profile_image", "")
+
+#     if not kakao_id:
+#         raise HTTPException(status_code=400, detail="카카오 ID 누락")
+
+#     # ✅ Firebase 커스텀 토큰 생성
+#     uid = f"kakao:{kakao_id}"
+#     try:
+#         firebase_custom_token = auth.create_custom_token(uid)
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=f"Firebase 토큰 생성 실패: {str(e)}")
+    
+
+#     return {
+#         "firebase_token" : firebase_custom_token,
+#         "kakao_user": {
+#             "name": kakao_name,
+#             "profile_image":  kakao_profile_image
+#         }
+#     }
+
+
+@router.post('/server-login')
+# async def server_login(request: Request, response: Response, db: Session = Depends(get_db)):
+#     token = request.headers.get("Authorization")
+#     if not token or not token.startswith("Bearer "):
+#         raise HTTPException(status_code=401, detail="토큰 없음")
+    
+#     id_token = token.split(" ")[1]
+
+#     body = await request.json()
+#     kakao_user = body.get("kakao_user", {})
+#     user_name = kakao_user.get("name", "")
+#     user_profile_image = kakao_user.get("profile_image", "")
+
+#     try:
+#         decoded_token = auth.verify_id_token(id_token)
+#         uid = decoded_token["uid"]
+
+#         # Firebase에 유저 있는지 확인
+#         try:
+#             firebase_user = auth.get_user(uid)
+#         except auth.UserNotFoundError:
+#             firebase_user = auth.create_user(uid=uid)
+
+#         # 서버 DB에서 유저 조회 (먼저 실행)
+#         user = db.query(User).filter(User.uid == uid).first()
+        
+#         if not user:
+#             user = User(
+#                 id=str(uuid.uuid4()),
+#                 uid=uid,
+#                 name=user_name,
+#                 profile_image=user_profile_image
+#             )
+#             db.add(user)
+#             db.commit()
+        
+#         # 토큰 발급 (유저 정보가 있는 후에)
+#         access_token = create_access_token(user)
+#         refresh_token = create_refresh_token(user)
+        
+#         # 리프레시 토큰 DB에 저장
+#         user.refresh_token = refresh_token
+#         db.commit()
+        
+#         print(f"액세스 토큰 설정: {access_token}...")
+#         print(f"리프레시 토큰 설정: {refresh_token}...")
+        
+#         # HttpOnly 쿠키에 액세스 토큰 설정
+#         response.set_cookie(key="access_cookie", value=access_token, httponly=True,secure=True, samesite="none", max_age=86400, path='/')
+        
+#         # 리프레시 토큰도 쿠키에 설정 (더 긴 수명)
+
+
+#         print("쿠키 설정 완료")
+
+#         # 응답에는 토큰을 포함하지 않고 사용자 정보만 반환
+#         return {
+#                 "user": {
+#                     "name": user_name,
+#                     "profile_image": user_profile_image
+#                 },
+#                 "status_code":200,
+#             }
+ 
+    
+#     except Exception as e:
+#         print("인증 에러:", str(e))
+#         raise HTTPException(status_code=401, detail=str(e))
+
+
 
 
 # @router.post('/refresh')

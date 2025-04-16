@@ -2,11 +2,24 @@ import firebase_admin
 from firebase_admin import credentials, auth
 from datetime import datetime, timedelta
 from jose import jwt
-from core.config import JWT_SECRET_KEY, JWT_ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS
+import os
 
 # 최초 1회 초기화 (app 시작 시)
-cred = credentials.Certificate("mywedding-136d8-firebase-adminsdk-fbsvc-bf78e895ba.json")
-firebase_admin.initialize_app(cred)
+cred = credentials.Certificate({
+    "type": os.environ["FIREBASE_TYPE"],
+    "project_id": os.environ["FIREBASE_PROJECT_ID"],
+    "private_key_id": os.environ["FIREBASE_PRIVATE_KEY_ID"],
+    "private_key": os.environ["FIREBASE_PRIVATE_KEY"].replace("\\n", "\n"),
+    "client_email": os.environ["FIREBASE_CLIENT_EMAIL"],
+    "client_id": os.environ["FIREBASE_CLIENT_ID"],
+    "auth_uri": os.environ["FIREBASE_AUTH_URI"],
+    "token_uri": os.environ["FIREBASE_TOKEN_URI"],
+    "auth_provider_x509_cert_url": os.environ["FIREBASE_AUTH_PROVIDER_X509_CERT_URL"],
+    "client_x509_cert_url": os.environ["FIREBASE_CLIENT_X509_CERT_URL"],
+    "universe_domain": os.environ["FIREBASE_UNIVERSE_DOMAIN"],
+})
+if not firebase_admin._apps:
+    firebase_admin.initialize_app(cred)
 
 def verify_firebase_token(id_token: str) -> dict:
     try:
@@ -16,33 +29,3 @@ def verify_firebase_token(id_token: str) -> dict:
     except Exception as e:
         raise ValueError("Invalid Firebase ID token") from e
 
-def create_access_token(user: dict | object) -> str:
-    """
-    access token 발급
-    """
-    uid = user["uid"] if isinstance(user, dict) else user.uid
-
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    payload = {
-        "sub": uid,
-        "exp": expire,
-        "type": "access",
-        "role" : "user"
-    }
-    token = jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
-    return token
-
-def create_refresh_token(user: dict | object) -> str:
-    """
-    refresh token 발급
-    """
-    uid = user["uid"] if isinstance(user, dict) else user.uid
-
-    expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-    payload = {
-        "sub": uid,
-        "exp": expire,
-        "type": "refresh"
-    }
-    token = jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
-    return token
