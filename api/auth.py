@@ -44,13 +44,14 @@ def kakao_login(body: CodeRequest, response : Response,db: Session = Depends(get
 
     token_json = token_response.json()
     kakao_access_token = token_json.get("access_token")
-
+    print("kakao_token", token_json)
     # 카카오 유저 정보 획득
     kakao_user_info_res = requests.get(
         "https://kapi.kakao.com/v2/user/me",
         headers={"Authorization": f"Bearer {kakao_access_token}"}
     )
     user_info = kakao_user_info_res.json()
+    print("user_info", user_info)
     user_id = user_info["id"]
     user_name = user_info["properties"]["nickname"]
     user_profile_image = user_info["properties"]["profile_image"]
@@ -58,7 +59,6 @@ def kakao_login(body: CodeRequest, response : Response,db: Session = Depends(get
     uid = f"kakao:{user_id}"
     try:
         firebase_custom_token = auth.create_custom_token(uid)
-        print("firbase_suctom_token", firebase_custom_token)
     except Exception as e:
         # --- 상세 에러 확인을 위한 코드 추가 ---
         print(f"!!!!!!!! Firebase Custom Token 생성 중 오류 발생 !!!!!!!!!!")
@@ -121,30 +121,45 @@ def kakao_login(body: CodeRequest, response : Response,db: Session = Depends(get
 # 
 
 @router.get("/me")
-def get_current_user(request: Request, db: Session = Depends(get_db)):
+def get_current_user(request: Request, response: Response, db: Session = Depends(get_db)):
     token = request.cookies.get("access_cookie")
-    print("token", token)
-    
     if not token:
         raise HTTPException(status_code=401, detail="Access token missing")
 
-    try:
-        payload = verify_jwt_token(token)  # JWT 검증
-        user_id = payload.get("sub")       # JWT에 저장된 user.id
-    except Exception as e:
-        raise HTTPException(status_code=401, detail="Invalid token")
+    result = verify_jwt_token(token)
+    if not result:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    payload = result["payload"]
+    new_access_token = result.get("new_access_token")
+
+    if new_access_token:
+        response.set_cookie(
+            key="access_cookie",
+            value=new_access_token,
+            httponly=True,
+            secure=False,
+            samesite="lax",
+            max_age=86400,
+            path="/"
+        )
+
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid token payload")
 
     user = db.query(User).filter(User.uid == user_id).first()
-
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
     return {
         "user": {
             "name": user.name,
-            "profile_image": user.profile_image
+            "profile_image": user.profile_image,
         }
     }
+
+
 
 @router.post("/logout")
 def logout(response: Response):
