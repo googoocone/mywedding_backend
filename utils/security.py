@@ -7,6 +7,8 @@ import dotenv
 from models.users import User
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
+
+
 from core.database import get_db
 from core.config import JWT_SECRET_KEY, JWT_ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS
 
@@ -15,10 +17,13 @@ dotenv.load_dotenv()
 SECRET_KEY = os.getenv('JWT_SECRET_KEY')
 ALGORITHM = "HS256"
 
+
+
 def verify_jwt_token(token: str, db: Session = Depends(get_db)) -> dict | None:
     print("검증합니다....", token)
     try:
         payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        
         return {
             "payload": payload,
             "new_access_token": None
@@ -57,6 +62,7 @@ def verify_jwt_token(token: str, db: Session = Depends(get_db)) -> dict | None:
             print("❌ 만료된 토큰 디코딩 실패", e)
             return None
     except jwt.InvalidTokenError:
+
         print("❌ 유효하지 않은 토큰")
         return None
 
@@ -66,6 +72,7 @@ def create_access_token(user: dict | object) -> str:
     access token 발급
     """
     uid = user["uid"] if isinstance(user, dict) else user.uid
+    print("uid", uid, type(uid))
 
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     payload = {
@@ -122,3 +129,20 @@ def get_new_access_token(payload: dict, db:Session = Depends(get_db)):
     except jwt.InvalidTokenError:
         print("유효하지 않은 리프레시 토큰")
         return None
+    
+def create_admin_token(admin: dict | object) -> str:
+    """
+    admin access token 발급
+    """
+
+    uid = str(admin.id)
+    print("uid", uid, type(uid))
+    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    payload = {
+        "sub": uid,
+        "exp": expire,
+        "type": "access",
+        "role" : "admin"
+    }
+    token = jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+    return token

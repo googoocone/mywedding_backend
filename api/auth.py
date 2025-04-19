@@ -51,7 +51,7 @@ def kakao_login(body: CodeRequest, response : Response,db: Session = Depends(get
         headers={"Authorization": f"Bearer {kakao_access_token}"}
     )
     user_info = kakao_user_info_res.json()
-    print("user_info", user_info)
+
     user_id = user_info["id"]
     user_name = user_info["properties"]["nickname"]
     user_profile_image = user_info["properties"]["profile_image"]
