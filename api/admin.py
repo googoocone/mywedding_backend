@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Form, Request, APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, HttpUrl
 
 from utils.hash import hash_password, verify_password
 from utils.security import create_admin_token, verify_jwt_token
@@ -7,11 +7,29 @@ from starlette.responses import Response
 from sqlalchemy.orm import Session
 from core.database import get_db
 from models.admin import Admin
+from typing import List, Optional
+
+from models.company import WeddingCompany as WeddingCompanyModel
+from models.halls import Hall as HallModel, HallInclude as HallIncludeModel, HallPhoto as HallPhotoModel
+
+from models.estimate import Estimate         as EstimateModel
+from models.estimate import MealPrice       as MealPriceModel
+from models.estimate import EstimateOption  as EstimateOptionModel
+from models.estimate import Etc             as EtcModel
+
+from models.package  import WeddingPackage     as WeddingPackageModel
+from models.package  import WeddingPackageItem as WeddingPackageItemModel
+
+from schemas.admin import (
+    CodeRequest,
+    HallSchema, HallPhotoSchema, HallIncludeSchema,
+    EstimateSchema, EstimateOptionSchema, MealTypeSchema,
+    WeddingPackageSchema, PackageItemSchema, EtcSchema, MealTypeSchema,
+    WeddingCompanyCreate,
+)
 
 
-class CodeRequest(BaseModel):
-  id : str
-  password : str
+
 
 router = APIRouter(prefix="/admin")
 
@@ -68,31 +86,69 @@ def get_current_user(request: Request, response: Response, db: Session = Depends
     return {
        "message" : "good"
     }
-    # payload = result["payload"]
-    # new_access_token = result.get("new_access_token")
+    
+    
+@router.post("/create-standard-estimate")
+def create_standard_estimate(
+    payload: WeddingCompanyCreate,
+    db: Session = Depends(get_db),
+):
+    try:
+        # --- ORM으로만 생성 ---
+        company = WeddingCompanyModel(
+            name=payload.name,
+            address=payload.address,
+            phone=payload.phone,
+            homepage=str(payload.homepage) if payload.homepage else None,
+            accessibility=payload.accessibility,
+            lat=payload.mapx,
+            lng = payload.mapy,
+            ceremony_times=payload.ceremony_times,
+        )
+        db.add(company); db.flush()
 
-    # if new_access_token:
-    #     response.set_cookie(
-    #         key="access_cookie",
-    #         value=new_access_token,
-    #         httponly=True,
-    #         secure=False,
-    #         samesite="lax",
-    #         max_age=86400,
-    #         path="/"
-    #     )
+        hall = HallModel(
+            wedding_company_id=company.id,
+            **payload.hall.dict()
+        )
+        db.add(hall); db.flush()
 
-    # user_id = payload.get("sub")
-    # if not user_id:
-    #     raise HTTPException(status_code=401, detail="Invalid token payload")
+        for inc in payload.hall_includes:
+            db.add(HallIncludeModel(hall_id=hall.id, **inc.dict()))
 
-    # user = db.query(Admin).filter(Admin.uid == user_id).first()
-    # if not user:
-    #     raise HTTPException(status_code=404, detail="User not found")
+        for photo in payload.hall_photos:
+            db.add(HallPhotoModel(hall_id=hall.id, **photo.dict()))
 
-    # return {
-    #     "user": {
-    #         "name": user.name,
-    #         "profile_image": user.profile_image,
-    #     }
-    # }
+        estimate = EstimateModel(
+            hall_id=hall.id,
+            hall_price=payload.estimate.hall_price,
+            type=payload.estimate.type,
+            date=payload.estimate.date,
+            created_by_user_id="131da9a7-6b64-4a0e-a75d-8cd798d698bd",
+        )
+        db.add(estimate); db.flush()
+
+        for m in payload.meal_price:
+            db.add(MealPriceModel(estimate_id=estimate.id, **m.dict()))
+
+        for opt in payload.estimate_options:
+            db.add(EstimateOptionModel(estimate_id=estimate.id, **opt.dict()))
+
+        if payload.etc:
+            db.add(EtcModel(estimate_id=estimate.id, **payload.etc.dict()))
+
+        wp = WeddingPackageModel(
+            estimate_id=estimate.id,
+            **payload.wedding_package.dict()
+        )
+        db.add(wp); db.flush()
+
+        for item in payload.package_items:
+            db.add(WeddingPackageItemModel(wedding_package_id=wp.id, **item.dict()))
+
+        db.commit()
+        return {"message": "업체 등록 완료", "company_id": company.id}
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"DB 저장 실패: {e}")
