@@ -4,7 +4,7 @@ from pydantic import BaseModel, HttpUrl
 from utils.hash import hash_password, verify_password
 from utils.security import create_admin_token, verify_jwt_token
 from starlette.responses import Response
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from core.database import get_db
 from models.admin import Admin
 from typing import List, Optional
@@ -19,6 +19,8 @@ from models.estimate import Etc             as EtcModel
 
 from models.package  import WeddingPackage     as WeddingPackageModel
 from models.package  import WeddingPackageItem as WeddingPackageItemModel
+
+from models.enums import EstimateTypeEnum
 
 from schemas.admin import (
     CodeRequest,
@@ -152,3 +154,31 @@ def create_standard_estimate(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"DB 저장 실패: {e}")
+    
+@router.post('/get_standard_estimate') 
+async def get_standard_estimate(request : Request, db: Session = Depends(get_db),):
+    data = await request.json()
+    company_name = data["companyName"]
+
+    estimates = (
+    db.query(EstimateModel)
+    .join(HallModel, EstimateModel.hall_id == HallModel.id)
+    .join(WeddingCompanyModel, HallModel.wedding_company_id == WeddingCompanyModel.id)
+    .options(joinedload(EstimateModel.hall))  # ← 요게 핵심
+    .filter(
+        WeddingCompanyModel.name == company_name,
+        EstimateModel.type == EstimateTypeEnum.standard
+    )
+    .all()
+    )
+    result = []
+    for est in estimates:
+        result.append({
+            "id": est.id,
+            "hall_id": est.hall_id,
+            "hall_name": est.hall.name,  # <- 여기!
+            "hall_price": est.hall_price,
+            "date": est.date.isoformat()
+    })
+
+    return {"message" : "성공", "data" : result}

@@ -1,5 +1,6 @@
 # models/hall.py
 from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, Text, Enum
+from sqlalchemy.orm import relationship
 from core.database import Base
 from models.enums import HallTypeEnum, MoodEnum
 
@@ -13,6 +14,7 @@ class Hall(Base):
     parking = Column(Integer, nullable=True)
     type = Column(Enum(HallTypeEnum), nullable=True)
     mood = Column(Enum(MoodEnum), nullable=True)
+    estimates = relationship("Estimate", back_populates="hall")
 
 class HallPhoto(Base):
     __tablename__ = "hall_photos"

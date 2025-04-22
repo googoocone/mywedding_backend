@@ -1,5 +1,6 @@
 # models/estimate.py
 from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, Date, Text, Enum
+from sqlalchemy.orm import relationship
 from core.database import Base
 from models.enums import EstimateTypeEnum, MealCategoryEnum
 
@@ -11,6 +12,7 @@ class Estimate(Base):
     type = Column(Enum(EstimateTypeEnum), nullable=True)
     date = Column(Date, nullable=True)
     created_by_user_id = Column(String, ForeignKey("users.id"))
+    hall = relationship("Hall", back_populates="estimates")
 
 class MealPrice(Base):
     __tablename__ = "meal_price"
