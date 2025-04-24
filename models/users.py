@@ -1,5 +1,6 @@
 from sqlalchemy import Column, String, Integer, TIMESTAMP, func, Date, ForeignKey
 from core.database import Base
+from sqlalchemy.orm import relationship
 
 class User(Base) :
     __tablename__ = 'users'
@@ -13,6 +14,8 @@ class User(Base) :
     type = Column(String)
     created_at = Column(TIMESTAMP, server_default=func.now())
 
+    user_wedding_info = relationship("UserWeddingInfo", back_populates="user")
+
 class UserWeddingInfo(Base):
     __tablename__ = "user_wedding_info"
     id = Column(Integer, primary_key=True, index=True)
@@ -20,4 +23,6 @@ class UserWeddingInfo(Base):
     wedding_region = Column(String, nullable=True)
     expected_buget = Column(Integer, nullable=True)
     prefered_hall_type = Column(String, nullable=True)
-    create_by_user_id = Column(Integer, ForeignKey("user.id"))
+    create_by_user_id = Column(String, ForeignKey("users.id"))
+
+    user = relationship("User", back_populates="user_wedding_info")

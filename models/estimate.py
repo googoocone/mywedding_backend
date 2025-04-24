@@ -12,7 +12,13 @@ class Estimate(Base):
     type = Column(Enum(EstimateTypeEnum), nullable=True)
     date = Column(Date, nullable=True)
     created_by_user_id = Column(String, ForeignKey("users.id"))
+
     hall = relationship("Hall", back_populates="estimates")
+    wedding_packages = relationship("WeddingPackage", back_populates="estimate")
+    meal_prices = relationship("MealPrice", back_populates="estimate")
+    estimate_options = relationship("EstimateOption", back_populates="estimate")
+    etcs = relationship("Etc", back_populates="estimate")
+
 
 class MealPrice(Base):
     __tablename__ = "meal_price"
@@ -22,6 +28,8 @@ class MealPrice(Base):
     category = Column(Enum(MealCategoryEnum), nullable=True)
     price = Column(Integer, nullable=True)
     extra = Column(Text, nullable=True)
+
+    estimate = relationship("Estimate", back_populates="meal_prices")
 
 class EstimateOption(Base):
     __tablename__ = "estimate_option"
@@ -33,8 +41,12 @@ class EstimateOption(Base):
     description = Column(Text, nullable=True)
     reference_url = Column(String, nullable=True)
 
+    estimate = relationship("Estimate", back_populates="estimate_options")
+
 class Etc(Base):
     __tablename__ = "etc"
     id = Column(Integer, primary_key=True, index=True)
     estimate_id = Column(Integer, ForeignKey("estimate.id"))
     content = Column(Text, nullable=True)
+
+    estimate = relationship("Estimate", back_populates="etcs")

@@ -14,7 +14,11 @@ class Hall(Base):
     parking = Column(Integer, nullable=True)
     type = Column(Enum(HallTypeEnum), nullable=True)
     mood = Column(Enum(MoodEnum), nullable=True)
+
     estimates = relationship("Estimate", back_populates="hall")
+    hall_photos = relationship("HallPhoto", back_populates="hall")
+    hall_includes = relationship("HallInclude", back_populates="hall")
+    wedding_company = relationship("WeddingCompany", back_populates="hall")
 
 class HallPhoto(Base):
     __tablename__ = "hall_photos"
@@ -25,9 +29,13 @@ class HallPhoto(Base):
     caption = Column(String, nullable=True)
     is_visible = Column(Boolean, nullable=True)
 
+    hall = relationship("Hall", back_populates="hall_photos")
+
 class HallInclude(Base):
     __tablename__ = "hall_include"
     id = Column(Integer, primary_key=True, index=True, nullable=True)
     hall_id = Column(Integer, ForeignKey("hall.id"))
     category = Column(String, nullable=True)
     subcategory = Column(String, nullable=True)
+
+    hall = relationship("Hall", back_populates="hall_includes")

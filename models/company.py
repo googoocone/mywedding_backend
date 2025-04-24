@@ -1,5 +1,6 @@
 # models/company.py
 from sqlalchemy import Column, Integer, String, Text, JSON
+from sqlalchemy.orm import relationship
 from core.database import Base
 
 class WeddingCompany(Base):
@@ -13,3 +14,5 @@ class WeddingCompany(Base):
     lat = Column(Integer, nullable=True)
     lng = Column(Integer, nullable=True)
     ceremony_times = Column(JSON, nullable=True)
+
+    hall = relationship("Hall", back_populates="wedding_company")
