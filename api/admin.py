@@ -31,6 +31,19 @@ from schemas.admin import (
     WeddingCompanyCreate,
 )
 
+from schemas.create_admin_estimate import (
+    AdminEstimateCreateRequestPayload,
+
+    HallFieldsPayload,
+    HallIncludeItemPayload,
+    HallPhotoItemPayload,
+    MealPriceItemPayload,
+    EstimateOptionItemPayload,
+    WeddingPackagePayload, # WeddingPackagePayload 임포트
+    WeddingPackageItemPayload, # WeddingPackageItemPayload 임포트
+
+)
+
 
 
 
@@ -155,6 +168,182 @@ def create_standard_estimate(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"DB 저장 실패: {e}")
+    
+@router.post('/create_admin_estimate')
+async def create_admin_estimate(
+    payload: AdminEstimateCreateRequestPayload, # Request Body를 Pydantic 모델로 받음
+    db: Session = Depends(get_db)
+):
+    """
+    프론트엔드에서 보낸 데이터를 기반으로 새로운 관리자 견적서와 관련 정보를 생성합니다.
+    수신된 데이터의 ID는 무시하고 새로운 레코드를 생성합니다.
+    """
+
+    print("paylaod", payload)
+
+    try:
+        # --- 새로운 레코드 생성 ---
+
+
+        # company = WeddingCompanyModel(
+        #     # 페이로드의 중첩된 company 객체에서 필드를 사용
+        #     name=payload.company.name,
+        #     address=payload.company.address,
+        #     phone=payload.company.phone,
+        #     homepage=payload.company.homepage,
+        #     accessibility=payload.company.accessibility,
+        #     lat=payload.company.lat, # JSON 키 'lat'은 'company' 안에 있습니다
+        #     lng=payload.company.lng, # JSON 키 'lng'은 'company' 안에 있습니다
+        #     ceremony_times=payload.company.ceremony_times,
+        # )
+        # db.add(company)
+        # db.flush() # ID를 얻기 위해 flush
+
+
+        # hall = HallModel(
+        #     wedding_company_id=company.id, # 새로 생성된 company의 ID 사용
+        #     name=payload.hall.name,
+        #     interval_minutes=payload.hall.interval_minutes,
+        #     guarantees=payload.hall.guarantees,
+        #     parking=payload.hall.parking,
+        #     type=payload.hall.type,
+        #     mood=payload.hall.mood,
+        # )
+        # db.add(hall)
+        # db.flush() # ID를 얻기 위해 flush
+
+        # 3. HallInclude 항목 생성 (payload.hall_includes 사용)
+        # payload.hall_includes 배열을 순회합니다. 새로운 항목이므로 item.id는 무시합니다.
+        for inc_payload in payload.hall_includes:
+            include = HallIncludeModel(
+                hall_id=payload.hall_id, # 새로 생성된 hall의 ID 사용
+                category=inc_payload.category,
+                subcategory=inc_payload.subcategory,
+            )
+            db.add(include)
+
+        # 4. HallPhoto 항목 생성 (payload.hall_photos 사용)
+        # payload.hall_photos 배열을 순회합니다. 새로운 항목이므로 photo.id는 무시합니다.
+        for photo_payload in payload.hall_photos:
+             # URL이 null이 아니어야 저장 (프론트엔드에서 null을 보낼 수도 있으므로)
+             if photo_payload.url:
+                photo = HallPhotoModel(
+                    hall_id=payload.hall_id, # 새로 생성된 hall의 ID 사용
+                    url=photo_payload.url,
+                    order_num=photo_payload.order_num,
+                    caption=photo_payload.caption,
+                    is_visible=photo_payload.is_visible,
+                )
+                db.add(photo)
+
+
+        # 5. Estimate 생성 (payload.estimate 사용)
+        # payload.estimate 객체의 필드를 사용합니다. 새로운 견적이므로 payload.estimate.id는 무시합니다.
+        estimate = EstimateModel(
+            hall_id=payload.hall_id,
+            # 최상위 레벨 페이로드에서 필드를 직접 사용
+            hall_price=payload.hall_price,
+            type=EstimateTypeEnum.admin, # 여전히 admin으로 하드코딩됨
+            date=payload.date, # <-- 이제 이게 최상위 레벨에 있습니다
+            created_by_user_id="131da9a7-6b64-4a0e-a75d-8cd798d698bd", # 사용자 ID 로직
+        )
+        print("--- 디버그 정보 ---")
+        print(f"created_by_user_id 값: {estimate.created_by_user_id}")
+        print(f"created_by_user_id 타입: {type(estimate.created_by_user_id)}")
+        print("---------------")
+        db.add(estimate)
+        db.flush() # ID를 얻기 위해 flush
+
+
+        # 6. MealPrice 항목 생성 (payload.meal_prices 사용) - JSON 키는 'meal_prices'
+        # payload.meal_prices 배열을 순회합니다. 새로운 항목이므로 item.id는 무시합니다.
+        for meal_payload in payload.meal_prices:
+            meal_price = MealPriceModel(
+                estimate_id=estimate.id, # 새로 생성된 estimate의 ID 사용
+                meal_type=meal_payload.meal_type,
+                category=meal_payload.category,
+                price=meal_payload.price,
+                extra=meal_payload.extra,
+            )
+            db.add(meal_price)
+
+        # 7. EstimateOption 항목 생성 (payload.estimate_options 사용)
+        # payload.estimate_options 배열을 순회합니다. 새로운 항목이므로 item.id는 무시합니다.
+        for opt_payload in payload.estimate_options:
+            option = EstimateOptionModel(
+                estimate_id=estimate.id, # 새로 생성된 estimate의 ID 사용
+                name=opt_payload.name,
+                price=opt_payload.price,
+                is_required=opt_payload.is_required,
+                description=opt_payload.description,
+                reference_url=opt_payload.reference_url,
+            )
+            db.add(option)
+
+        # 8. Etc 항목 생성 (payload.etc 사용)
+        # payload.etc가 단일 객체 또는 null이므로 체크합니다. etcs는 배열 모델이지만, 여기서는 단일 항목 생성
+        for etc_payload in payload.etcs: # 리스트를 순회합니다
+            # 필요한 경우 내용이 비어있지 않은지 확인
+            if etc_payload and etc_payload.content.strip() != "":
+                etc_item = EtcModel(
+                    estimate_id=estimate.id,
+                    content=etc_payload.content
+                )
+                db.add(etc_item)
+
+        # 9. WeddingPackage 생성 (payload.wedding_package 사용) - 단일 객체 또는 null
+        if payload.wedding_package is not None:
+             # payload.wedding_package 객체의 필드를 사용합니다. 새로운 패키지이므로 payload.wedding_package.id는 무시합니다.
+             wp_payload = payload.wedding_package
+             wp = WeddingPackageModel(
+                 estimate_id=estimate.id, # 새로 생성된 estimate의 ID 사용
+                 type=wp_payload.type,
+                 name=wp_payload.name,
+                 total_price=wp_payload.total_price,
+                 is_total_price=wp_payload.is_total_price,
+             )
+             db.add(wp)
+             db.flush() # ID를 얻기 위해 flush
+
+             # 10. WeddingPackageItem 항목 생성 (payload.wedding_package.wedding_package_items 사용) - JSON 키 'wedding_package_items'
+             # payload.wedding_package.wedding_package_items 배열을 순회합니다. 새로운 항목이므로 item.id는 무시합니다.
+             for item_payload in wp_payload.wedding_package_items:
+                 wp_item = WeddingPackageItemModel(
+                     wedding_package_id=wp.id, # 새로 생성된 wedding_package의 ID 사용
+                     type=item_payload.type,
+                     price=item_payload.price,
+                     description=item_payload.description,
+                     url=item_payload.url,
+                 )
+                 db.add(wp_item)
+
+            # Note: payload.package_items (top-level list)는 JSON 구조상 존재하지만,
+            # wedding_package.wedding_package_items와 중복되므로 여기서는 무시합니다.
+            # 백엔드는 권위 있는 데이터 소스를 하나만 선택해야 합니다.
+
+
+        # 11. Commit transaction
+        db.commit()
+
+        # 12. Return success response
+        # 새로 생성된 견적서의 ID 등을 반환할 수 있습니다.
+        return {"message": "관리자 견적서 등록 완료", "estimate_id": estimate.id}
+
+    except SQLAlchemyError as e:
+        # 데이터베이스 저장 중 오류 발생 시 롤백
+        db.rollback()
+        print(f"데이터베이스 저장 오류: {e}")
+        raise HTTPException(status_code=500, detail="데이터베이스 저장 오류 발생")
+    except Exception as e:
+        # 기타 예상치 못한 오류 발생 시 롤백
+        db.rollback()
+        print(f"관리자 견적서 생성 중 서버 오류 발생: {e}")
+        raise HTTPException(status_code=500, detail=f"서버 오류 발생: {e}")
+
+
+
+    
+
     
 @router.post('/get_standard_estimate')
 async def get_standard_estimate(request : Request, db: Session = Depends(get_db)):

@@ -1,5 +1,6 @@
 # models/estimate.py
 from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, Date, Text, Enum
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from core.database import Base
 from models.enums import EstimateTypeEnum, MealCategoryEnum
@@ -11,7 +12,7 @@ class Estimate(Base):
     hall_price = Column(Integer, nullable=True)
     type = Column(Enum(EstimateTypeEnum), nullable=True)
     date = Column(Date, nullable=True)
-    created_by_user_id = Column(String, ForeignKey("users.id"))
+    created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
 
     hall = relationship("Hall", back_populates="estimates")
     wedding_packages = relationship("WeddingPackage", back_populates="estimate")
