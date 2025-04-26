@@ -14,7 +14,7 @@ class WeddingPackage(Base):
     estimate_id = Column(Integer, ForeignKey("estimate.id"))
 
     estimate = relationship("Estimate", back_populates="wedding_packages")
-    wedding_package_items = relationship("WeddingPackageItem", back_populates="wedding_package")
+    wedding_package_items = relationship("WeddingPackageItem", cascade="all",back_populates="wedding_package")
 
 class WeddingPackageItem(Base):
     __tablename__ = "wedding_package_item"

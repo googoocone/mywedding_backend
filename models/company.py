@@ -15,4 +15,4 @@ class WeddingCompany(Base):
     lng = Column(Integer, nullable=True)
     ceremony_times = Column(JSON, nullable=True)
 
-    hall = relationship("Hall", back_populates="wedding_company")
+    halls = relationship("Hall", back_populates="wedding_company")

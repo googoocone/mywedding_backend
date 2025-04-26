@@ -36,8 +36,6 @@ from schemas.create_admin_estimate import (
 )
 
 
-
-
 router = APIRouter(prefix="/admin")
 
 @router.post('/')
@@ -77,29 +75,13 @@ def admin_signin(body: CodeRequest, response: Response,  db:Session=Depends(get_
         print("❌ 예외 발생:", e)
         raise
     
-
-
-@router.get("/me")
-def get_current_user(request: Request, response: Response, db: Session = Depends(get_db)):
-    token = request.cookies.get("admin_token")
-    print("admin token", token)
-    if not token:
-        raise HTTPException(status_code=401, detail="Access token missing")
-
-    result = verify_jwt_token(token)
-    if not result:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-    print("result", result)
-    return {
-       "message" : "good"
-    }
-    
     
 @router.post("/create-standard-estimate")
 def create_standard_estimate(
     payload: WeddingCompanyCreate,
     db: Session = Depends(get_db),
 ):
+    print("payload", payload)
     try:
         # --- ORM으로만 생성 ---
         company = WeddingCompanyModel(
@@ -635,3 +617,49 @@ async def get_admin_estimate(request : Request, db: Session = Depends(get_db)):
         # 예상치 못한 다른 예외 발생 시 로깅 및 500 에러 반환
         print(f"표준 견적 정보를 가져오는 중 서버 오류 발생: {e}")
         raise HTTPException(status_code=500, detail="표준 견적 정보를 가져오는 중 서버 오류가 발생했습니다.")
+
+@router.get("/me")
+def get_current_user(request: Request, response: Response, db: Session = Depends(get_db)):
+    token = request.cookies.get("access_cookie")
+    if not token:
+        raise HTTPException(status_code=401, detail="Access token missing")
+
+    result = verify_jwt_token(token)
+    if not result:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    payload = result["payload"]
+    new_access_token = result.get("new_access_token")
+
+    if new_access_token:
+        response.set_cookie(
+            key="access_cookie",
+            value=new_access_token,
+            httponly=True,
+            secure=False,
+            samesite="lax",
+            max_age=86400,
+            path="/"
+        )
+
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid token payload")
+
+    user = db.query(Admin).filter(Admin.uid == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return {
+        "user": {
+            "name": user.name,
+            "profile_image": user.profile_image,
+        }
+    }
+
+
+
+@router.post("/logout")
+def logout(response: Response):
+    response.delete_cookie("access_cookie")
+    return {"message": "로그아웃 완료"}
