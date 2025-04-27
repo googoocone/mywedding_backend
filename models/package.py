@@ -19,7 +19,7 @@ class WeddingPackage(Base):
 class WeddingPackageItem(Base):
     __tablename__ = "wedding_package_item"
     id = Column(Integer, primary_key=True, index=True)
-    type = Column(Enum(PackageItemTypeEnum), nullable=True)
+    type = Column(Enum(PackageItemTypeEnum, name ="package_item_type"), nullable=True)
     company_name = Column(String, nullable=True)
     price = Column(Integer, nullable=True)
     description = Column(String, nullable=True)
