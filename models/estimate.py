@@ -1,5 +1,5 @@
 # models/estimate.py
-from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, Date, Text, Enum
+from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, Date, Text, Enum, Time
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from core.database import Base
@@ -13,6 +13,9 @@ class Estimate(Base):
     hall_price = Column(Integer, nullable=True)
     type = Column(Enum(EstimateTypeEnum), nullable=True)
     date = Column(Date, nullable=True)
+    time = Column(Time, nullable=True)
+    penalty_amount = Column(Integer, nullable=True)
+    penalty_detail = Column(String, nullable=True)
     created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
 
     hall = relationship("Hall", back_populates="estimates")

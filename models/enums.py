@@ -19,10 +19,10 @@ class EstimateTypeEnum(str, enum.Enum):
     user = "user"
 
 class MealCategoryEnum(str, enum.Enum):
-    성인 = "대인"
+    대인 = "대인"
     소인 = "소인"
     미취학 = "미취학"
-    주류 = "음/주류"
+    음주류 = "음주류"
 
 class PackageTypeEnum(str, enum.Enum):
     스드메 = "스드메"

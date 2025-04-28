@@ -1,8 +1,10 @@
 from fastapi import FastAPI, Form, Request, APIRouter, Depends, HTTPException, Path
+from grpc import Status
 from pydantic import BaseModel, HttpUrl
 
 from utils.hash import hash_password, verify_password
 from utils.security import create_admin_token, verify_jwt_token
+from auth.firebase import get_firebase_bucket, extract_firebase_path_from_url
 from starlette.responses import Response
 from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy.exc import SQLAlchemyError
@@ -113,6 +115,9 @@ def create_standard_estimate(
             hall_price=payload.estimate.hall_price,
             type=payload.estimate.type,
             date=payload.estimate.date,
+            time = payload.estimate.time,
+            penalty_amount = payload.estimate.penalty_amount,
+            penalty_detail = payload.estimate.penalty_detail,
             created_by_user_id="131da9a7-6b64-4a0e-a75d-8cd798d698bd",
         )
         db.add(estimate); db.flush()
@@ -156,26 +161,26 @@ async def create_admin_estimate(
 
     try:
         
-        for inc_payload in payload.hall_includes:
-            include = HallIncludeModel(
-                hall_id=payload.hall_id, # 새로 생성된 hall의 ID 사용
-                category=inc_payload.category,
-                subcategory=inc_payload.subcategory,
-            )
-            db.add(include)
+        # for inc_payload in payload.hall_includes:
+        #     include = HallIncludeModel(
+        #         hall_id=payload.hall_id, # 새로 생성된 hall의 ID 사용
+        #         category=inc_payload.category,
+        #         subcategory=inc_payload.subcategory,
+        #     )
+        #     db.add(include)
 
 
-        for photo_payload in payload.hall_photos:
-             # URL이 null이 아니어야 저장 (프론트엔드에서 null을 보낼 수도 있으므로)
-             if photo_payload.url:
-                photo = HallPhotoModel(
-                    hall_id=payload.hall_id, # 새로 생성된 hall의 ID 사용
-                    url=photo_payload.url,
-                    order_num=photo_payload.order_num,
-                    caption=photo_payload.caption,
-                    is_visible=photo_payload.is_visible,
-                )
-                db.add(photo)
+        # for photo_payload in payload.hall_photos:
+        #      # URL이 null이 아니어야 저장 (프론트엔드에서 null을 보낼 수도 있으므로)
+        #      if photo_payload.url:
+        #         photo = HallPhotoModel(
+        #             hall_id=payload.hall_id, # 새로 생성된 hall의 ID 사용
+        #             url=photo_payload.url,
+        #             order_num=photo_payload.order_num,
+        #             caption=photo_payload.caption,
+        #             is_visible=photo_payload.is_visible,
+        # #         )
+        #         db.add(photo)
 
         estimate = EstimateModel(
             hall_id=payload.hall_id,
@@ -183,6 +188,9 @@ async def create_admin_estimate(
             hall_price=payload.hall_price,
             type=EstimateTypeEnum.admin, # 여전히 admin으로 하드코딩됨
             date=payload.date, # <-- 이제 이게 최상위 레벨에 있습니다
+            time = payload.time,
+            penalty_amount = payload.penalty_amount,
+            penalty_detail = payload.penalty_detail,
             created_by_user_id="131da9a7-6b64-4a0e-a75d-8cd798d698bd", # 사용자 ID 로직
         )
         print("--- 디버그 정보 ---")
@@ -287,6 +295,7 @@ async def update_admin_estimate(
         existing_estimate.hall_id = payload.hall_id
         existing_estimate.hall_price = payload.hall_price
         existing_estimate.date = payload.date
+        existing_estimate.time = payload.time
         # type, created_by_user_id는 일반적으로 수정하지 않습니다.
 
         # 3. HallInclude 업데이트 또는 생성
@@ -501,11 +510,6 @@ async def update_admin_estimate(
         print(f"관리자 견적서 수정 중 서버 오류 발생: {e}")
         raise HTTPException(status_code=500, detail=f"서버 오류 발생: {e}")
 
-
-
-    
-
-    
 @router.post('/get_standard_estimate')
 async def get_standard_estimate(request : Request, db: Session = Depends(get_db)):
     """
@@ -618,6 +622,214 @@ async def get_admin_estimate(request : Request, db: Session = Depends(get_db)):
         print(f"표준 견적 정보를 가져오는 중 서버 오류 발생: {e}")
         raise HTTPException(status_code=500, detail="표준 견적 정보를 가져오는 중 서버 오류가 발생했습니다.")
 
+@router.get('/get_standard_estimate_all')
+async def get_admin_estimate_all(db: Session = Depends(get_db)):
+    """
+    모든 관리자 견적서 목록과 관련 상세 정보를 가져옵니다.
+    (업체, 홀, 식대, 옵션, 기타, 패키지 등)
+    """
+    print("GET /admin/get_admin_estimate_all 엔드포인트 호출됨")
+
+    # SQLAlchemy 쿼리: Estimate를 기준으로 관련 정보 모두 로드
+    # selectinload: 1대N 관계 (리스트) 로드 시 효율적 (meal_prices, etcs 등)
+    # joinedload: 1대1 관계 (단일 객체) 로드 시 효율적 (hall, wedding_company)
+    estimates = db.query(EstimateModel)\
+                .options(
+                    # Estimate -> MealPrice 목록 로드
+                    selectinload(EstimateModel.meal_prices),
+                    # Estimate -> EstimateOption 목록 로드
+                    selectinload(EstimateModel.estimate_options),
+                    # Estimate -> Etc 목록 로드
+                    selectinload(EstimateModel.etcs),
+                    # Estimate -> WeddingPackage 목록 로드 (일반적으로 견적당 패키지는 0 또는 1개)
+                    # 패키지 내 아이템도 함께 로드
+                    selectinload(EstimateModel.wedding_packages).selectinload(WeddingPackageModel.wedding_package_items),
+                    # Estimate -> Hall 로드, 그리고 Hall -> WeddingCompany 로드
+                    joinedload(EstimateModel.hall).joinedload(HallModel.wedding_company),
+                    # Hall -> HallPhoto 목록 로드
+                    joinedload(EstimateModel.hall).selectinload(HallModel.hall_photos),
+                     # Hall -> HallInclude 목록 로드
+                    joinedload(EstimateModel.hall).selectinload(HallModel.hall_includes),
+                ).filter(EstimateModel.type == "standard").all() # 모든 견적서 가져오기
+
+    print(f"총 {len(estimates)}개의 견적서 불러옴")
+    # Pydantic 응답 모델로 자동 직렬화되어 반환됨
+    return estimates
+
+@router.get('/get_admin_estimate_all')
+async def get_admin_estimate_all(db: Session = Depends(get_db)):
+    """
+    모든 관리자 견적서 목록과 관련 상세 정보를 가져옵니다.
+    (업체, 홀, 식대, 옵션, 기타, 패키지 등)
+    """
+    print("GET /admin/get_admin_estimate_all 엔드포인트 호출됨")
+
+    # SQLAlchemy 쿼리: Estimate를 기준으로 관련 정보 모두 로드
+    # selectinload: 1대N 관계 (리스트) 로드 시 효율적 (meal_prices, etcs 등)
+    # joinedload: 1대1 관계 (단일 객체) 로드 시 효율적 (hall, wedding_company)
+    estimates = db.query(EstimateModel)\
+                .options(
+                    # Estimate -> MealPrice 목록 로드
+                    selectinload(EstimateModel.meal_prices),
+                    # Estimate -> EstimateOption 목록 로드
+                    selectinload(EstimateModel.estimate_options),
+                    # Estimate -> Etc 목록 로드
+                    selectinload(EstimateModel.etcs),
+                    # Estimate -> WeddingPackage 목록 로드 (일반적으로 견적당 패키지는 0 또는 1개)
+                    # 패키지 내 아이템도 함께 로드
+                    selectinload(EstimateModel.wedding_packages).selectinload(WeddingPackageModel.wedding_package_items),
+                    # Estimate -> Hall 로드, 그리고 Hall -> WeddingCompany 로드
+                    joinedload(EstimateModel.hall).joinedload(HallModel.wedding_company),
+                    # Hall -> HallPhoto 목록 로드
+                    joinedload(EstimateModel.hall).selectinload(HallModel.hall_photos),
+                     # Hall -> HallInclude 목록 로드
+                    joinedload(EstimateModel.hall).selectinload(HallModel.hall_includes),
+                ).filter(EstimateModel.type == "admin").all() # 모든 견적서 가져오기
+
+    print(f"총 {len(estimates)}개의 견적서 불러옴")
+    # Pydantic 응답 모델로 자동 직렬화되어 반환됨
+    return estimates
+
+@router.delete('/admin_estimates/{estimate_id}')
+async def delete_admin_estimate(estimate_id: int, db: Session = Depends(get_db)):
+    """
+    특정 ID의 관리자 견적서와 연관된 모든 하위 정보를 삭제합니다.
+    (식대, 옵션, 기타, 패키지 등)
+    """
+    print(f"DELETE /admin/estimates/{estimate_id} 엔드포인트 호출됨")
+
+    # 삭제할 견적서 찾기
+    # .first() 대신 .one_or_none()을 사용하여 레코드가 0개 또는 1개임을 명시할 수 있습니다.
+    estimate = db.query(EstimateModel).filter(EstimateModel.id == estimate_id).one_or_none()
+
+    if estimate is None:
+        # 견적서를 찾을 수 없을 경우 404 Not Found 에러 반환
+        raise HTTPException(
+            status_code=Status.HTTP_404_NOT_FOUND, # status 모듈 사용 권장
+            detail=f"견적서 ID {estimate_id}를 찾을 수 없습니다."
+        )
+
+    try:
+        # 견적서 삭제
+        # SQLAlchemy의 cascade="all" 설정에 따라 연결된 하위 정보(meal_prices, etcs 등)도 자동으로 삭제됩니다.
+        db.delete(estimate)
+        db.commit() # 데이터베이스에 변경사항 반영 (삭제 실행)
+        # db.refresh(estimate) # 삭제된 객체에는 refresh를 할 필요 없습니다.
+
+        print(f"견적서 (ID: {estimate_id}) 및 연관 정보 삭제 완료")
+
+        # 삭제 성공 응답 반환 (예: 성공 메시지)
+        # 클라이언트는 200 OK 응답을 받으면 성공으로 처리합니다.
+        return {"message": f"견적서 (ID: {estimate_id})가 성공적으로 삭제되었습니다."}
+
+    except Exception as e:
+        db.rollback() # 데이터베이스 작업 중 오류 발생 시 롤백하여 불완전한 변경 방지
+        print(f"견적서 삭제 중 오류 발생 (ID: {estimate_id}): {e}")
+        # 내부 서버 오류 500 에러 반환
+        raise HTTPException(
+            status_code=Status.HTTP_500_INTERNAL_SERVER_ERROR, # status 모듈 사용 권장
+            detail=f"견적서 삭제 중 오류가 발생했습니다: {e}"
+        )
+
+# --- 표준 견적서 삭제 엔드포인트 (홀 포함 삭제 + Firebase 사진 삭제) ---
+@router.delete('/standard_estimates/{estimate_id}')
+async def delete_standard_estimate(estimate_id: int, db: Session = Depends(get_db)):
+    """
+    특정 ID의 표준 견적서와 연결된 홀 및 해당 홀의 모든 정보를 삭제하고
+    Firebase Storage에 저장된 사진 파일도 삭제합니다.
+    (주의: 이 홀에 연결된 다른 모든 견적서도 함께 삭제됩니다.)
+    """
+    print(f"DELETE /standard_estimates/{estimate_id} 엔드포인트 호출됨")
+
+    # 1. 삭제 대상 견적서를 찾습니다.
+    #    Firebase 경로 추출을 위해 HallPhoto 정보를 미리 로드합니다.
+    #    ✅ Hall -> HallPhoto 로드 옵션 확인 (JoinedLoad 권장)
+    estimate_to_delete = db.query(EstimateModel)\
+                           .options(joinedload(EstimateModel.hall).joinedload(HallModel.hall_photos))\
+                           .filter(EstimateModel.id == estimate_id)\
+                           .one_or_none()
+
+    if estimate_to_delete is None:
+        raise HTTPException(
+            status_code=Status.HTTP_404_NOT_FOUND,
+            detail=f"견적서 ID {estimate_id}를 찾을 수 없습니다."
+        )
+
+    # 2. 견적서에 연결된 Hall 객체 및 사진 목록을 가져옵니다. (joinedload로 이미 로드됨)
+    hall_to_delete = estimate_to_delete.hall # 관계를 통해 접근
+
+    if hall_to_delete is None:
+         print(f"경고: 견적서 (ID: {estimate_id})가 연결된 홀 정보를 찾을 수 없습니다.")
+         raise HTTPException(
+             status_code=Status.HTTP_500_INTERNAL_SERVER_ERROR,
+             detail=f"견적서 ID {estimate_id}에 연결된 홀 정보를 찾을 수 없습니다."
+         )
+
+    # ✅ Firebase Storage 버킷 가져오기 유틸리티 함수 사용
+    bucket = get_firebase_bucket()
+    if bucket is None:
+        print("경고: Firebase Storage 버킷 초기화 또는 가져오기 실패. 파일 삭제 건너뜀.")
+        # TODO: 에러 처리 정책 결정
+        firebase_delete_attempted = False # 파일 삭제 시도 안 함
+    else:
+         firebase_delete_attempted = True # 버킷 가져오기 성공
+
+
+    try:
+        # ✅ 3. Firebase Storage에서 사진 파일 삭제 시도
+        photos_deleted_count = 0
+        photos_failed_count = 0
+
+        if firebase_delete_attempted: # 버킷을 가져왔을 경우만 시도
+            print(f"Firebase Storage에서 파일 삭제 시도 시작...")
+
+            # ✅ 미리 로드된 hall_to_delete.hall_photos 관계 사용
+            if hall_to_delete.hall_photos: # 사진 목록이 비어있지 않은 경우만 순회
+                for photo_record in hall_to_delete.hall_photos:
+                    if photo_record.url:
+                        # ✅ 파일 경로 추출 유틸리티 함수 사용
+                        firebase_path = extract_firebase_path_from_url(photo_record.url)
+
+                        if firebase_path:
+                            try:
+                                blob = bucket.blob(firebase_path)
+                                blob.delete()
+                                print(f"Firebase 파일 삭제 성공: {firebase_path}")
+                                photos_deleted_count += 1
+                            except Exception as firebase_error:
+                                print(f"경고: Firebase 파일 삭제 실패: {firebase_path} - {firebase_error}")
+                                photos_failed_count += 1
+                                # TODO: 파일 삭제 실패 처리 정책
+
+            print(f"Firebase 파일 삭제 시도 완료. 성공: {photos_deleted_count}, 실패: {photos_failed_count}")
+        else:
+             print("Firebase Storage 파일 삭제 시도 안 함 (버킷 접근 실패).")
+
+
+        # ✅ 4. 데이터베이스 레코드 삭제 (기존 코드)
+        db.delete(hall_to_delete) # 홀 객체 삭제 (캐스케이드로 모든 연관 DB 레코드 삭제)
+        db.commit() # 변경사항 반영
+
+        print(f"견적서 (ID: {estimate_id}) 연결된 홀 (ID: {hall_to_delete.id}) 및 DB 연관 정보 삭제 완료")
+
+        # 삭제 성공 응답 반환
+        return {
+            "message": f"견적서 (ID: {estimate_id})와 연결된 홀 및 모든 연관 정보가 성공적으로 삭제되었습니다.",
+            "firebase_files_deleted": photos_deleted_count,
+            "firebase_files_failed_to_delete": photos_failed_count,
+            "firebase_delete_attempted": firebase_delete_attempted # 파일 삭제 시도 여부
+        }
+
+    except Exception as e:
+        db.rollback() # DB 롤백 (Firebase 삭제는 롤백되지 않음)
+        print(f"홀 삭제 중 치명적 오류 발생 (ID: {hall_to_delete.id if hall_to_delete else 'N/A'}, 견적서 ID: {estimate_id}): {e}")
+        raise HTTPException(
+            status_code=Status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"삭제 중 오류가 발생했습니다: {e}"
+        )
+
+
+
 @router.get("/me")
 def get_current_user(request: Request, response: Response, db: Session = Depends(get_db)):
     token = request.cookies.get("access_cookie")
@@ -656,7 +868,6 @@ def get_current_user(request: Request, response: Response, db: Session = Depends
             "profile_image": user.profile_image,
         }
     }
-
 
 
 @router.post("/logout")

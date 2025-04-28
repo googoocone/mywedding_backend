@@ -2,6 +2,7 @@
 
 from pydantic import BaseModel, HttpUrl
 from typing import List, Optional
+from datetime import date, time as times
 
 class CodeRequest(BaseModel):
     id: str
@@ -41,7 +42,10 @@ class EstimateOptionSchema(BaseModel):
 class EstimateSchema(BaseModel):
     hall_price: int
     type: str
-    date: str
+    date: date
+    time : Optional[times] = None
+    penalty_amount: Optional[int] = None
+    penalty_detail: Optional[str] = None
 
 class WeddingPackageSchema(BaseModel):
     type: str

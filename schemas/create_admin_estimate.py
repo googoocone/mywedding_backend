@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel, ConfigDict
 from typing import List, Optional
-from datetime import date
+from datetime import date, time as times
 # Enum types (assuming correct import paths)
 from models.enums import (
     EstimateTypeEnum,
@@ -115,6 +115,10 @@ class AdminEstimateCreateRequestPayload(BaseModel):
     hall_price: Optional[int] = None # <-- Present at top level in JSON
     type: Optional[EstimateTypeEnum] = None # <-- Present at top level in JSON.
     date: date # <-- Present at top level in JSON. date 문자열 파싱은 Pydantic이 처리합니다.
+    time : Optional[times] = None
+    # ✅ 위약금 관련 필드 추가 (프론트 상태와 동일하게)
+    penalty_amount: Optional[int] = None
+    penalty_detail: Optional[str] = None
 
     # Lists at top level in JSON example
     etcs: List[EtcItemPayload] = [] # <-- JSON에 'etcs' (리스트)로 있습니다.
