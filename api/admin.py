@@ -731,23 +731,30 @@ async def delete_admin_estimate(estimate_id: int, db: Session = Depends(get_db))
             detail=f"견적서 삭제 중 오류가 발생했습니다: {e}"
         )
 
-# --- 표준 견적서 삭제 엔드포인트 (홀 포함 삭제 + Firebase 사진 삭제) ---
+
+# --- 표준 견적서 삭제 엔드포인트 (업체 + 홀 + 사진 삭제) ---
 @router.delete('/standard_estimates/{estimate_id}')
 async def delete_standard_estimate(estimate_id: int, db: Session = Depends(get_db)):
     """
-    특정 ID의 표준 견적서와 연결된 홀 및 해당 홀의 모든 정보를 삭제하고
+    특정 ID의 표준 견적서에 연결된 홀과 해당 홀이 속한 '업체(Company)',
+    그리고 홀의 모든 정보(사진 포함)를 삭제합니다.
     Firebase Storage에 저장된 사진 파일도 삭제합니다.
-    (주의: 이 홀에 연결된 다른 모든 견적서도 함께 삭제됩니다.)
+    (주의: 이 업체/홀에 연결된 다른 모든 정보도 함께 삭제될 수 있습니다.)
     """
-    print(f"DELETE /standard_estimates/{estimate_id} 엔드포인트 호출됨")
+    print(f"DELETE /standard_estimates/{estimate_id} 엔드포인트 호출됨 (업체 포함 삭제)")
 
-    # 1. 삭제 대상 견적서를 찾습니다.
-    #    Firebase 경로 추출을 위해 HallPhoto 정보를 미리 로드합니다.
-    #    ✅ Hall -> HallPhoto 로드 옵션 확인 (JoinedLoad 권장)
+    # 1. 삭제 대상 견적서 로드 시, 연관된 홀 -> 사진, 홀 -> 업체를 함께 로드 (Eager Loading)
+    # HallModel에 'company'라는 이름의 관계(relationship)가 정의되어 있다고 가정합니다.
+    # 만약 관계 이름이 다르면 'HallModel.company' 부분을 실제 이름으로 변경해야 합니다.
     estimate_to_delete = db.query(EstimateModel)\
-                           .options(joinedload(EstimateModel.hall).joinedload(HallModel.hall_photos))\
-                           .filter(EstimateModel.id == estimate_id)\
-                           .one_or_none()
+                            .options(
+                                joinedload(EstimateModel.hall) # 견적서 -> 홀
+                                .joinedload(HallModel.hall_photos), # 홀 -> 사진들
+                                joinedload(EstimateModel.hall) # 견적서 -> 홀
+                                .joinedload(HallModel.wedding_company) # <<< 수정됨: 'wedding_company' 관계 속성 사용
+                            )\
+                            .filter(EstimateModel.id == estimate_id)\
+                            .one_or_none()
 
     if estimate_to_delete is None:
         raise HTTPException(
@@ -755,77 +762,107 @@ async def delete_standard_estimate(estimate_id: int, db: Session = Depends(get_d
             detail=f"견적서 ID {estimate_id}를 찾을 수 없습니다."
         )
 
-    # 2. 견적서에 연결된 Hall 객체 및 사진 목록을 가져옵니다. (joinedload로 이미 로드됨)
-    hall_to_delete = estimate_to_delete.hall # 관계를 통해 접근
+    # 2. 견적서에 연결된 Hall 객체 및 Company 객체 가져오기 (joinedload로 이미 로드됨)
+    hall_to_delete = estimate_to_delete.hall
 
     if hall_to_delete is None:
-         print(f"경고: 견적서 (ID: {estimate_id})가 연결된 홀 정보를 찾을 수 없습니다.")
+         print(f"경고: 견적서 (ID: {estimate_id})가 연결된 홀 정보를 찾을 수 없습니다. 삭제 작업을 진행할 수 없습니다.")
+         # 홀 정보가 없으면 업체 정보도 알 수 없으므로 에러 처리
          raise HTTPException(
              status_code=Status.HTTP_500_INTERNAL_SERVER_ERROR,
-             detail=f"견적서 ID {estimate_id}에 연결된 홀 정보를 찾을 수 없습니다."
+             detail=f"견적서 ID {estimate_id}에 연결된 필수 홀 정보를 찾을 수 없습니다."
          )
 
-    # ✅ Firebase Storage 버킷 가져오기 유틸리티 함수 사용
+    # ✅ 홀에 연결된 Company 객체 가져오기
+    # HallModel.company 관계를 통해 CompanyModel 객체에 접근합니다.
+    company_to_delete = hall_to_delete.wedding_company
+
+    if company_to_delete is None:
+         # 데이터 무결성 문제일 수 있습니다. 홀은 있는데 업체가 없는 경우.
+         # 정책에 따라 경고만 출력하고 홀만 삭제하거나, 에러를 발생시킬 수 있습니다.
+         # 여기서는 경고 출력 후 홀만 삭제하는 방향으로 진행합니다.
+         print(f"경고: 홀 (ID: {hall_to_delete.id})에 연결된 업체 정보를 찾을 수 없습니다. 업체 삭제는 건너뜁니다.")
+         # 필요 시 아래 주석 해제하여 에러 발생
+         # raise HTTPException(
+         #     status_code=Status.HTTP_500_INTERNAL_SERVER_ERROR,
+         #     detail=f"홀 ID {hall_to_delete.id}에 연결된 업체 정보가 누락되었습니다."
+         # )
+
+    # 3. Firebase Storage 버킷 가져오기 및 초기화
     bucket = get_firebase_bucket()
-    if bucket is None:
-        print("경고: Firebase Storage 버킷 초기화 또는 가져오기 실패. 파일 삭제 건너뜀.")
-        # TODO: 에러 처리 정책 결정
-        firebase_delete_attempted = False # 파일 삭제 시도 안 함
-    else:
-         firebase_delete_attempted = True # 버킷 가져오기 성공
+    firebase_delete_attempted = bucket is not None # 버킷 가져오기 성공 여부
+    photos_deleted_count = 0
+    photos_failed_count = 0
 
+    if not firebase_delete_attempted:
+        print("경고: Firebase Storage 버킷 초기화 또는 가져오기 실패. Firebase 파일 삭제는 건너뜁니다.")
+        # TODO: 에러 처리 정책 결정 (예: DB 삭제도 막을지 여부)
 
+    # --- 삭제 로직 시작 (DB 트랜잭션 관리) ---
     try:
-        # ✅ 3. Firebase Storage에서 사진 파일 삭제 시도
-        photos_deleted_count = 0
-        photos_failed_count = 0
-
-        if firebase_delete_attempted: # 버킷을 가져왔을 경우만 시도
-            print(f"Firebase Storage에서 파일 삭제 시도 시작...")
-
-            # ✅ 미리 로드된 hall_to_delete.hall_photos 관계 사용
-            if hall_to_delete.hall_photos: # 사진 목록이 비어있지 않은 경우만 순회
-                for photo_record in hall_to_delete.hall_photos:
-                    if photo_record.url:
-                        # ✅ 파일 경로 추출 유틸리티 함수 사용
-                        firebase_path = extract_firebase_path_from_url(photo_record.url)
-
-                        if firebase_path:
-                            try:
-                                blob = bucket.blob(firebase_path)
-                                blob.delete()
-                                print(f"Firebase 파일 삭제 성공: {firebase_path}")
-                                photos_deleted_count += 1
-                            except Exception as firebase_error:
-                                print(f"경고: Firebase 파일 삭제 실패: {firebase_path} - {firebase_error}")
-                                photos_failed_count += 1
-                                # TODO: 파일 삭제 실패 처리 정책
-
+        # 4. Firebase Storage에서 사진 파일 삭제 시도 (버킷이 준비된 경우)
+        if firebase_delete_attempted and hall_to_delete.hall_photos: # 사진 레코드가 있을 때만
+            print(f"Firebase Storage에서 파일 삭제 시도 시작 (홀 ID: {hall_to_delete.id})...")
+            for photo_record in hall_to_delete.hall_photos:
+                if photo_record.url: # URL이 있는 경우만
+                    firebase_path = extract_firebase_path_from_url(photo_record.url)
+                    if firebase_path: # 경로 추출 성공 시
+                        try:
+                            blob = bucket.blob(firebase_path)
+                            blob.delete() # 파일 삭제 실행
+                            print(f"Firebase 파일 삭제 성공: {firebase_path}")
+                            photos_deleted_count += 1
+                        except Exception as firebase_error:
+                            # 개별 파일 삭제 실패 시 로깅 및 카운트 증가 (전체 프로세스 중단 안 함)
+                            print(f"경고: Firebase 파일 삭제 실패: {firebase_path} - {firebase_error}")
+                            photos_failed_count += 1
+                            # TODO: 실패 알림 또는 재시도 로직 등 고려
             print(f"Firebase 파일 삭제 시도 완료. 성공: {photos_deleted_count}, 실패: {photos_failed_count}")
+        elif firebase_delete_attempted:
+            print(f"홀 (ID: {hall_to_delete.id})에 삭제할 Firebase 사진 레코드가 없습니다.")
+        # else: 버킷 접근 실패 메시지는 위에서 출력됨
+
+        # 5. 데이터베이스 레코드 삭제
+        # 주의: 삭제 순서 및 Cascade 설정에 따라 결과가 달라질 수 있습니다.
+        # 여기서는 Hall을 먼저 삭제하고, 그 다음에 Company를 삭제합니다.
+        # 만약 Company 삭제 시 Hall이 자동으로 Cascade 삭제되도록 설정되어 있다면,
+        # Hall 삭제 코드는 불필요할 수 있습니다. (하지만 명시적으로 두는 것이 안전할 수 있음)
+
+        # ✅ Hall 삭제 (연관된 Estimate, HallPhoto 등 DB 레코드가 Cascade 삭제될 수 있음)
+        db.delete(hall_to_delete)
+        print(f"DB에서 홀 레코드 삭제 시도 (ID: {hall_to_delete.id})")
+
+        # ✅ Company 삭제 (연관된 다른 Hall 등 DB 레코드가 Cascade 삭제될 수 있음)
+        if company_to_delete: # Company 객체가 존재하고 연결되어 있는 경우에만 삭제
+             db.delete(company_to_delete)
+             print(f"DB에서 업체 레코드 삭제 시도 (ID: {company_to_delete.id})")
         else:
-             print("Firebase Storage 파일 삭제 시도 안 함 (버킷 접근 실패).")
+             print("DB에서 업체 레코드 삭제 건너뜀 (연결된 업체 정보 없음)")
 
+        # 6. 모든 DB 변경사항 커밋
+        db.commit()
 
-        # ✅ 4. 데이터베이스 레코드 삭제 (기존 코드)
-        db.delete(hall_to_delete) # 홀 객체 삭제 (캐스케이드로 모든 연관 DB 레코드 삭제)
-        db.commit() # 변경사항 반영
+        print(f"견적서(ID:{estimate_id})에 연결된 홀(ID:{hall_to_delete.id}) 및 업체(ID:{company_to_delete.id if company_to_delete else 'N/A'}) 관련 정보 DB 삭제 완료")
 
-        print(f"견적서 (ID: {estimate_id}) 연결된 홀 (ID: {hall_to_delete.id}) 및 DB 연관 정보 삭제 완료")
-
-        # 삭제 성공 응답 반환
+        # 7. 삭제 성공 응답 반환
         return {
-            "message": f"견적서 (ID: {estimate_id})와 연결된 홀 및 모든 연관 정보가 성공적으로 삭제되었습니다.",
+            "message": f"견적서(ID:{estimate_id})와 연결된 업체, 홀 및 모든 연관 정보가 성공적으로 삭제되었습니다.",
+            "deleted_estimate_id": estimate_id,
+            "deleted_hall_id": hall_to_delete.id,
+            "deleted_company_id": company_to_delete.id if company_to_delete else None, # 삭제된 업체 ID 반환
             "firebase_files_deleted": photos_deleted_count,
             "firebase_files_failed_to_delete": photos_failed_count,
-            "firebase_delete_attempted": firebase_delete_attempted # 파일 삭제 시도 여부
+            "firebase_delete_attempted": firebase_delete_attempted # Firebase 삭제 시도 여부
         }
 
     except Exception as e:
-        db.rollback() # DB 롤백 (Firebase 삭제는 롤백되지 않음)
-        print(f"홀 삭제 중 치명적 오류 발생 (ID: {hall_to_delete.id if hall_to_delete else 'N/A'}, 견적서 ID: {estimate_id}): {e}")
+        # DB 작업 중 오류 발생 시 롤백
+        db.rollback()
+        print(f"삭제 처리 중 치명적 오류 발생 (Estimate ID: {estimate_id}): {e}")
+        # 중요: Firebase에서 이미 삭제된 파일은 DB 롤백과 별개로 복구되지 않습니다.
         raise HTTPException(
             status_code=Status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"삭제 중 오류가 발생했습니다: {e}"
+            detail=f"삭제 처리 중 오류가 발생했습니다: {e}"
         )
 
 
