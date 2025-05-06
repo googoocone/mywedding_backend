@@ -7,33 +7,18 @@ from models.company import WeddingCompany
 from models.estimate import Estimate, EstimateOption
 from models.package import WeddingPackage
 from models.halls import Hall, HallPhoto
+from typing import List, Dict, Any, Optional # 응답 타입을 명확히 하기 위해 임포트
 
 router = APIRouter(prefix='/hall')
 
 @router.get('/get_wedding_halls')
+
 def get_wedding_halls(db:Session = Depends(get_db)):
-  print("hello")
-#   companies_query = (
-#     db.query(WeddingCompany)
-#     .options(
-#         selectinload(WeddingCompany.halls)
-#         .selectinload(Hall.hall_photos),
-        
-#         selectinload(WeddingCompany.halls)
-#         .selectinload(Hall.estimates),
-        
-#         with_loader_criteria(
-#             Estimate, 
-#             lambda est: est.type == "standard", 
-#             include_aliases=True
-#         )
-#     )
-# )
-  companies_query = db.query(WeddingCompany).options(selectinload(WeddingCompany.halls).selectinload(Hall.hall_photos))
+    companies_query = db.query(WeddingCompany).options(selectinload(WeddingCompany.halls).selectinload(Hall.hall_photos))
+    companies = companies_query.all()
+    return companies
 
-  companies = companies_query.all()
 
-  return companies
 
 @router.get(
     "/get_detail_wedding_hall/{company_id}",
