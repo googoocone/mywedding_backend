@@ -10,8 +10,7 @@ from sqlalchemy.orm import Session
 
 
 from core.database import get_db
-from core.config import JWT_SECRET_KEY, JWT_ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS
-
+from core.config import JWT_SECRET_KEY, JWT_ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS,ADMIN_TOKEN_EXPIRE_MINUTES
 dotenv.load_dotenv()
 
 SECRET_KEY = os.getenv('JWT_SECRET_KEY')
@@ -137,7 +136,7 @@ def create_admin_token(admin: dict | object) -> str:
 
     uid = str(admin.id)
     print("uid", uid, type(uid))
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = datetime.utcnow() + timedelta(minutes=ADMIN_TOKEN_EXPIRE_MINUTES)
     payload = {
         "sub": uid,
         "exp": expire,
