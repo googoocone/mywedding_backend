@@ -871,7 +871,7 @@ async def delete_standard_estimate(estimate_id: int, db: Session = Depends(get_d
 
 @router.get("/me")
 def get_current_user(request: Request, response: Response, db: Session = Depends(get_db)):
-    token = request.cookies.get("access_cookie")
+    token = request.cookies.get("admin_token")
     if not token:
         raise HTTPException(status_code=401, detail="Access token missing")
 
@@ -879,33 +879,10 @@ def get_current_user(request: Request, response: Response, db: Session = Depends
     if not result:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-    payload = result["payload"]
-    new_access_token = result.get("new_access_token")
-
-    if new_access_token:
-        response.set_cookie(
-            key="access_cookie",
-            value=new_access_token,
-            httponly=True,
-            secure=False,
-            samesite="lax",
-            max_age=86400,
-            path="/"
-        )
-
-    user_id = payload.get("sub")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid token payload")
-
-    user = db.query(Admin).filter(Admin.uid == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+    
 
     return {
-        "user": {
-            "name": user.name,
-            "profile_image": user.profile_image,
-        }
+        "message" : "관리자 쿠키 만료 log out"
     }
 
 
