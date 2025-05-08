@@ -22,6 +22,7 @@ app.add_middleware(
         "http://localhost:3000",
         "http://localhost:3001",
         "https://myweddingdiary-admin.co.kr",
+        "https://www.myweddingdiary-admin.co.kr",
         "https://myweddingdiary.co.kr",
         "https://myweddingdiary-server.co.kr"
 
