@@ -44,6 +44,10 @@ router = APIRouter(prefix="/admin")
 def admin_home(reponse:Response) :
   return {"message" : "hello"}
 
+@router.options("/signin")
+def preflight_handler(request: Request):
+    return Response(status_code=204)
+
 @router.post('/signin')
 def admin_signin(body: CodeRequest, response: Response,  db:Session=Depends(get_db)):
     try:
