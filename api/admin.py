@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Form, Request, APIRouter, Depends, HTTPException, Path
+from fastapi.responses import JSONResponse
 from grpc import Status
 from pydantic import BaseModel, HttpUrl
 
@@ -47,7 +48,7 @@ def admin_home(reponse:Response) :
 @router.options("/signin")
 def preflight_handler(request: Request):
     print("🔥 OPTIONS /signin preflight 호출됨")
-    return Response(status_code=204)
+    return JSONResponse(content={}, status_code=204)
 
 @router.post('/signin')
 def admin_signin(body: CodeRequest, response: Response,  db:Session=Depends(get_db)):
