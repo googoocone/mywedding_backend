@@ -46,6 +46,7 @@ def admin_home(reponse:Response) :
 
 @router.options("/signin")
 def preflight_handler(request: Request):
+    print("🔥 OPTIONS /signin preflight 호출됨")
     return Response(status_code=204)
 
 @router.post('/signin')
