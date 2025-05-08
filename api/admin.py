@@ -69,6 +69,7 @@ def admin_signin(body: CodeRequest, response: Response,  db:Session=Depends(get_
           samesite="None",         # ✅ 기본값으로
           max_age=86400,
           path='/',
+
           )
 
           return {"message": "login", "status": 200}
@@ -876,14 +877,22 @@ def get_current_user(request: Request, response: Response, db: Session = Depends
         raise HTTPException(status_code=401, detail="Access token missing")
 
     result = verify_jwt_token(token)
+    payload = result["payload"]
     if not result:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
-
     
+    admin_id=payload.get("sub")
+    admin = db.query(Admin).filter(Admin.id == admin_id).first()
+
+    if not admin:
+        raise HTTPException(status_code=404, detail="Admin not found")
 
     return {
-        "message" : "관리자 쿠키 만료 log out"
+        "admin": {
+            "name": admin.name,
+        }
     }
+
 
 
 @router.post("/logout")
