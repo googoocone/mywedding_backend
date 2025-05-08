@@ -65,8 +65,8 @@ def admin_signin(body: CodeRequest, response: Response,  db:Session=Depends(get_
           key="admin_token",
           value=admin_token,
           httponly=True,
-          secure=False,           # ✅ 로컬 개발에서는 False
-          samesite="lax",         # ✅ 기본값으로
+          secure=True,           # ✅ 로컬 개발에서는 False
+          samesite="None",         # ✅ 기본값으로
           max_age=86400,
           path='/'
           )
