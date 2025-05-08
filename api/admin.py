@@ -69,7 +69,6 @@ def admin_signin(body: CodeRequest, response: Response,  db:Session=Depends(get_
           samesite="None",         # ✅ 기본값으로
           max_age=86400,
           path='/',
-          domain="myweddingdiary-admin.co.kr"
           )
 
           return {"message": "login", "status": 200}
