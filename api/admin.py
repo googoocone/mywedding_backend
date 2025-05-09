@@ -1,3 +1,5 @@
+from http import HTTPStatus
+from typing import List, Optional
 from fastapi import FastAPI, Form, Request, APIRouter, Depends, HTTPException, Path
 from grpc import Status
 from pydantic import BaseModel, HttpUrl
@@ -10,7 +12,6 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy.exc import SQLAlchemyError
 from core.database import get_db
 from models.admin import Admin
-from typing import List, Optional
 
 from models.company import WeddingCompany as WeddingCompanyModel
 from models.halls import Hall as HallModel, HallInclude as HallIncludeModel, HallPhoto as HallPhotoModel
@@ -24,6 +25,9 @@ from models.package  import WeddingPackage     as WeddingPackageModel
 from models.package  import WeddingPackageItem as WeddingPackageItemModel
 
 from models.enums import EstimateTypeEnum
+
+
+from schemas.update_standard_estimate import StandardEstimateUpdateRequestSchemaV2
 
 from schemas.admin import (
     CodeRequest,
@@ -513,6 +517,57 @@ async def update_admin_estimate(
         print(f"관리자 견적서 수정 중 서버 오류 발생: {e}")
         raise HTTPException(status_code=500, detail=f"서버 오류 발생: {e}")
 
+#표준 견적서 가져오는 부분
+@router.get("/standard_estimates/{estimate_id}")
+async def get_single_standard_estimate( # 함수 이름 변경 (단건 조회 명시)
+    estimate_id: int, # 경로 파라미터로 estimate_id 받기
+    db: Session = Depends(get_db)
+):
+    """
+    특정 ID의 표준 견적서 상세 정보를 모든 관계 데이터와 함께 가져옵니다.
+    프론트엔드 수정 폼 초기화에 사용됩니다.
+    """
+    try:
+        # Estimate를 기준으로 관련된 모든 데이터를 eager loading 합니다.
+        # 친구가 제공한 코드의 로딩 옵션을 그대로 활용합니다.
+        db_estimate = db.query(EstimateModel).options(
+            joinedload(EstimateModel.hall).options(
+                joinedload(HallModel.wedding_company),
+                selectinload(HallModel.hall_photos),
+                selectinload(HallModel.hall_includes)
+            ),
+            selectinload(EstimateModel.meal_prices),
+            selectinload(EstimateModel.estimate_options),
+            selectinload(EstimateModel.etcs),
+            selectinload(EstimateModel.wedding_packages).selectinload(
+                WeddingPackageModel.wedding_package_items
+            )
+            # 필요하다면 EstimateModel.created_by_user 관계도 로드
+        ).filter(
+            EstimateModel.id == estimate_id,
+            EstimateModel.type == EstimateTypeEnum.standard # 표준 견적서만 필터링
+        ).first() # .all() 대신 .first()를 사용하여 단일 객체를 가져옴
+
+        if not db_estimate:
+            raise HTTPException(status_code=404, detail=f"ID가 {estimate_id}인 표준 견적서를 찾을 수 없습니다.")
+
+        # Pydantic 모델이 자동으로 SQLAlchemy 객체를 JSON으로 변환합니다.
+        # (response_model=DetailedEstimateSchema 설정 덕분)
+        return db_estimate
+
+    except SQLAlchemyError as e:
+        # 데이터베이스 쿼리 중 발생한 에러 처리
+        print(f"데이터베이스 쿼리 오류: {e}")
+        raise HTTPException(status_code=500, detail="데이터베이스 오류 발생")
+    except HTTPException as e:
+        # 이미 HTTPException으로 처리된 예외는 다시 발생
+        raise e
+    except Exception as e:
+        # 예상치 못한 다른 예외 발생 시 로깅 및 500 에러 반환
+        print(f"표준 견적서 상세 정보 조회 중 서버 오류 발생 ({estimate_id=}): {e}")
+        raise HTTPException(status_code=500, detail="표준 견적서 상세 정보 조회 중 서버 오류가 발생했습니다.")
+
+
 @router.post('/get_standard_estimate')
 async def get_standard_estimate(request : Request, db: Session = Depends(get_db)):
     """
@@ -568,6 +623,331 @@ async def get_standard_estimate(request : Request, db: Session = Depends(get_db)
         # 예상치 못한 다른 예외 발생 시 로깅 및 500 에러 반환
         print(f"표준 견적 정보를 가져오는 중 서버 오류 발생: {e}")
         raise HTTPException(status_code=500, detail="표준 견적 정보를 가져오는 중 서버 오류가 발생했습니다.")
+
+
+def update_child_list_items(
+    db: Session,
+    db_parent_instance: any, # 예: db_estimate 또는 db_hall 또는 db_package
+    current_db_child_list: List[any], # 예: db_estimate.meal_prices
+    payload_child_list: Optional[List[BaseModel]], # 예: request_data.meal_prices
+    child_model_class: type, # 예: MealPriceModel
+    parent_foreign_key_name: str, # 예: "estimate_id" 또는 "hall_id"
+    # child_unique_key_name: str = "id" # 자식 항목의 PK 이름 (보통 'id')
+):
+    """
+    부모 객체에 연결된 자식 항목 목록을 업데이트합니다 (Create, Update, Delete).
+    payload_child_list의 각 항목은 id (기존 항목) 또는 id 없음 (새 항목)을 가질 수 있습니다.
+    """
+    if payload_child_list is None: # payload에 해당 목록이 없으면 아무것도 안 함
+        return
+
+    existing_child_ids_in_db = {child.id for child in current_db_child_list if child.id}
+    payload_child_ids_with_id = {payload_item.id for payload_item in payload_child_list if payload_item.id}
+
+    # 1. 삭제 (Delete): DB에는 있지만 payload에는 없는 ID (기존 항목이 삭제된 경우)
+    child_ids_to_delete = existing_child_ids_in_db - payload_child_ids_with_id
+    if child_ids_to_delete:
+        print(f"Deleting {child_model_class.__name__} IDs: {child_ids_to_delete}")
+        for child_id in child_ids_to_delete:
+            child_to_delete = db.query(child_model_class).filter_by(id=child_id).first()
+            if child_to_delete:
+                db.delete(child_to_delete)
+
+    # 2. 수정 (Update) 또는 추가 (Create)
+    for payload_item_schema in payload_child_list:
+        payload_item_dict = payload_item_schema.model_dump(exclude_unset=True) # Pydantic V2
+        # payload_item_dict = payload_item_schema.dict(exclude_unset=True) # Pydantic V1
+
+        item_id = payload_item_dict.get("id")
+
+        if item_id and item_id in existing_child_ids_in_db: # ID가 있고 DB에도 존재하면 수정
+            print(f"Updating {child_model_class.__name__} ID: {item_id}")
+            db_child_item = db.query(child_model_class).filter_by(id=item_id).first()
+            if db_child_item:
+                for key, value in payload_item_dict.items():
+                    if key != "id": # id는 업데이트 대상이 아님
+                        setattr(db_child_item, key, value)
+        elif not item_id : # ID가 없으면 새 항목으로 추가 (또는 ID가 있지만 DB에 없는 비정상 케이스도 여기에 포함될 수 있음)
+            # 새 항목 추가 시 부모 ID 설정
+            payload_item_dict.pop("id", None) # id 필드가 실수로 있어도 제거
+            payload_item_dict[parent_foreign_key_name] = db_parent_instance.id
+            print(f"Creating new {child_model_class.__name__} with data: {payload_item_dict}")
+            new_child_item = child_model_class(**payload_item_dict)
+            db.add(new_child_item)
+            # current_db_child_list.append(new_child_item) # SQLAlchemy 세션에 반영 (선택적)
+    db.flush() # 변경사항(특히 새 ID)을 DB 세션에 반영
+
+
+@router.put("/standard_estimates/{estimate_id}") # 실제 응답 스키마 지정
+async def update_standard_estimate_full( # 함수 이름 변경 (예: update_standard_estimate_full)
+    estimate_id: int,
+    request_data: StandardEstimateUpdateRequestSchemaV2, # 요청 스키마
+    db: Session = Depends(get_db) # DB 세션 의존성 주입
+    # current_user: User = Depends(get_current_active_user) # 인증/인가가 필요하다면 추가
+):
+    # 1. 견적서 및 관련 데이터 로드 (Eager loading 활용)
+    db_estimate = db.query(EstimateModel).options(
+        joinedload(EstimateModel.hall).options(
+            joinedload(HallModel.wedding_company),
+            selectinload(HallModel.hall_photos),
+            selectinload(HallModel.hall_includes)
+        ),
+        selectinload(EstimateModel.meal_prices),
+        selectinload(EstimateModel.estimate_options),
+        selectinload(EstimateModel.etcs),
+        selectinload(EstimateModel.wedding_packages).options(
+            selectinload(WeddingPackageModel.wedding_package_items) # 패키지 아이템도 Eager load
+        ),
+    ).filter(
+        EstimateModel.id == estimate_id,
+        EstimateModel.type == EstimateTypeEnum.standard # 표준 견적서만 대상
+    ).first()
+
+    if not db_estimate:
+        raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail="수정할 표준 견적서를 찾을 수 없습니다.")
+    if not db_estimate.hall: # 표준 견적서에는 홀 정보가 필수라고 가정
+        raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail="견적서에 필수 홀 정보가 누락되었습니다. (ID: {db_estimate.id})")
+
+    bucket = get_firebase_bucket()
+    firebase_available = bucket is not None
+    if not firebase_available:
+        print(f"경고: Firebase 버킷을 가져올 수 없어 Firebase 파일 처리를 건너뜁니다. (Estimate ID: {estimate_id})")
+
+    try:
+        # --- 사진 처리 시작 (이전 답변의 수정된 로직 적용) ---
+        current_db_photos_map = {photo.id: photo for photo in db_estimate.hall.hall_photos if photo.id}
+        persisted_or_created_photo_ids = set()
+
+        # 단계 1: final_photos 목록 처리 (유지/업데이트 또는 신규 추가)
+        if request_data.final_photos:
+            print(f"처리할 최종 사진 목록 {len(request_data.final_photos)}개 (홀 ID: {db_estimate.hall.id})")
+            for photo_payload in request_data.final_photos:
+                db_photo_to_update = None
+                if photo_payload.id and photo_payload.id in current_db_photos_map:
+                    db_photo_to_update = current_db_photos_map[photo_payload.id]
+
+                if db_photo_to_update: # 기존 사진: 메타데이터 업데이트
+                    print(f"유지/업데이트 사진 (ID: {db_photo_to_update.id}), URL: {db_photo_to_update.url}")
+                    db_photo_to_update.order_num = photo_payload.order_num
+                    db_photo_to_update.caption = photo_payload.caption
+                    db_photo_to_update.is_visible = photo_payload.is_visible if photo_payload.is_visible is not None else True
+                    persisted_or_created_photo_ids.add(db_photo_to_update.id)
+                elif photo_payload.url: # 새 사진 추가
+                    print(f"새 사진 추가: URL='{photo_payload.url}', Order={photo_payload.order_num}")
+                    new_db_photo = HallPhotoModel(
+                        hall_id=db_estimate.hall.id,
+                        url=photo_payload.url,
+                        order_num=photo_payload.order_num,
+                        caption=photo_payload.caption,
+                        is_visible=photo_payload.is_visible if photo_payload.is_visible is not None else True
+                    )
+                    db.add(new_db_photo)
+                    db.flush()
+                    persisted_or_created_photo_ids.add(new_db_photo.id)
+                else:
+                    print(f"경고: 유효한 ID나 URL이 없는 사진 페이로드 항목은 건너뜁니다: {photo_payload.model_dump() if hasattr(photo_payload, 'model_dump') else photo_payload}")
+            db.flush()
+
+        # 단계 2: 삭제할 사진들 처리
+        ids_explicitly_marked_for_delete = set(request_data.photo_ids_to_delete or [])
+        all_db_photo_ids = set(current_db_photos_map.keys())
+        ids_to_actually_delete = set()
+
+        for photo_id in ids_explicitly_marked_for_delete:
+            if photo_id in all_db_photo_ids:
+                ids_to_actually_delete.add(photo_id)
+                print(f"사진 ID {photo_id}는 명시적으로 삭제 요청됨.")
+        for photo_id in all_db_photo_ids:
+            if photo_id not in persisted_or_created_photo_ids:
+                ids_to_actually_delete.add(photo_id)
+                if photo_id not in ids_explicitly_marked_for_delete:
+                    print(f"사진 ID {photo_id}는 최종 목록에 없어 정리 대상으로 추가됨.")
+        
+        if ids_to_actually_delete:
+            print(f"실제 삭제될 사진 ID 목록: {ids_to_actually_delete}")
+            for photo_id_to_delete in ids_to_actually_delete:
+                photo_record_to_delete = current_db_photos_map.get(photo_id_to_delete)
+                if not photo_record_to_delete: # Eager load된 맵에 없으면 DB에서 재조회 (거의 발생 안 함)
+                    photo_record_to_delete = db.query(HallPhotoModel).filter_by(id=photo_id_to_delete, hall_id=db_estimate.hall.id).first()
+
+                if photo_record_to_delete:
+                    if firebase_available and photo_record_to_delete.url:
+                        firebase_path = extract_firebase_path_from_url(photo_record_to_delete.url)
+                        if firebase_path:
+                            try:
+                                blob = bucket.blob(firebase_path)
+                                blob.delete()
+                                print(f"  Firebase 파일 삭제 성공 (ID: {photo_id_to_delete}): {firebase_path}")
+                            except Exception as e_fb_del:
+                                if "No such object" in str(e_fb_del) or (hasattr(e_fb_del, 'code') and e_fb_del.code == 404):
+                                    print(f"  경고: Firebase 파일 이미 없음 (ID: {photo_id_to_delete}, Path: {firebase_path}): {e_fb_del}")
+                                else:
+                                    print(f"  에러: Firebase 파일 삭제 실패 (ID: {photo_id_to_delete}, Path: {firebase_path}): {e_fb_del}")
+                    db.delete(photo_record_to_delete)
+                    print(f"  DB 사진 레코드 삭제 성공 (ID: {photo_id_to_delete})")
+            db.flush()
+        # --- 사진 처리 끝 ---
+
+        # --- 나머지 견적서 필드 업데이트 ---
+        # Estimate 직접 필드 업데이트
+        if request_data.hall_price is not None: db_estimate.hall_price = request_data.hall_price
+        if request_data.date is not None: db_estimate.date = request_data.date
+        if request_data.time is not None: db_estimate.time = request_data.time
+        if request_data.penalty_amount is not None: db_estimate.penalty_amount = request_data.penalty_amount
+        if request_data.penalty_detail is not None: db_estimate.penalty_detail = request_data.penalty_detail
+        if request_data.type is not None: db_estimate.type = request_data.type # 타입 변경이 가능하다면
+        
+        # WeddingCompany 정보 업데이트
+        if request_data.wedding_company_update_data and db_estimate.hall.wedding_company:
+            company_payload = request_data.wedding_company_update_data
+            db_company = db_estimate.hall.wedding_company # 이미 로드된 객체
+            
+            if company_payload.name is not None: db_company.name = company_payload.name
+            if company_payload.address is not None: db_company.address = company_payload.address
+            if company_payload.phone is not None: db_company.phone = company_payload.phone
+            if company_payload.homepage is not None: db_company.homepage = company_payload.homepage
+            if company_payload.accessibility is not None: db_company.accessibility = company_payload.accessibility
+            if company_payload.lat is not None: db_company.lat = company_payload.lat # 타입 변환 주의 (스키마 float, 모델 int/float)
+            if company_payload.lng is not None: db_company.lng = company_payload.lng # 타입 변환 주의
+            
+            # 예식 시간 업데이트
+            if hasattr(company_payload, 'ceremony_times'): # 필드가 payload에 있는지 확인
+                db_company.ceremony_times = company_payload.ceremony_times # None 또는 문자열 값 할당
+            
+            print(f"업체 정보 업데이트 완료 (ID: {db_company.id}), 예식시간: {db_company.ceremony_times}")
+
+        # Hall 기본 정보 업데이트 (hall_photos와 hall_includes는 별도 처리)
+        if request_data.hall_update_data and db_estimate.hall:
+            hall_payload = request_data.hall_update_data
+            db_hall = db_estimate.hall # 이미 로드된 객체
+
+            if hall_payload.name is not None: db_hall.name = hall_payload.name
+            if hall_payload.interval_minutes is not None: db_hall.interval_minutes = hall_payload.interval_minutes
+            if hall_payload.guarantees is not None: db_hall.guarantees = hall_payload.guarantees
+            if hall_payload.parking is not None: db_hall.parking = hall_payload.parking
+            if hall_payload.type is not None: db_hall.type = hall_payload.type # Enum 타입 직접 할당 또는 변환
+            if hall_payload.mood is not None: db_hall.mood = hall_payload.mood # Enum 타입 직접 할당 또는 변환
+            print(f"홀 기본 정보 업데이트 완료 (ID: {db_hall.id})")
+
+        # HallIncludes 업데이트 (update_child_list_items 사용)
+        if request_data.hall_includes_update_data is not None and db_estimate.hall:
+            print(f"홀 포함사항 업데이트 시작 (홀 ID: {db_estimate.hall.id})")
+            update_child_list_items(
+                db=db,
+                db_parent_instance=db_estimate.hall,
+                current_db_child_list=db_estimate.hall.hall_includes, # Eager loaded
+                payload_child_list=request_data.hall_includes_update_data,
+                child_model_class=HallIncludeModel,
+                parent_foreign_key_name="hall_id"
+            )
+
+        # MealPrices 업데이트 (update_child_list_items 사용)
+        if request_data.meal_prices is not None:
+            print(f"식대 정보 업데이트 시작 (견적 ID: {db_estimate.id})")
+            update_child_list_items(
+                db=db,
+                db_parent_instance=db_estimate,
+                current_db_child_list=db_estimate.meal_prices, # Eager loaded
+                payload_child_list=request_data.meal_prices,
+                child_model_class=MealPriceModel,
+                parent_foreign_key_name="estimate_id"
+            )
+
+        # EstimateOptions 업데이트 (update_child_list_items 사용)
+        if request_data.estimate_options is not None:
+            print(f"견적 옵션 업데이트 시작 (견적 ID: {db_estimate.id})")
+            update_child_list_items(
+                db=db,
+                db_parent_instance=db_estimate,
+                current_db_child_list=db_estimate.estimate_options, # Eager loaded
+                payload_child_list=request_data.estimate_options,
+                child_model_class=EstimateOptionModel,
+                parent_foreign_key_name="estimate_id"
+            )
+        
+        # Etcs 업데이트 (update_child_list_items 사용)
+        # 프론트에서 단일 객체를 배열로 보내는 경우, 스키마는 List[EtcUpdateSchema]로 받아야 함
+        if request_data.etcs is not None:
+            print(f"기타 정보 업데이트 시작 (견적 ID: {db_estimate.id})")
+            update_child_list_items(
+                db=db,
+                db_parent_instance=db_estimate,
+                current_db_child_list=db_estimate.etcs, # Eager loaded
+                payload_child_list=request_data.etcs,
+                child_model_class=EtcModel,
+                parent_foreign_key_name="estimate_id"
+            )
+
+        # WeddingPackages 업데이트 (프론트가 단일 패키지만 보낸다고 가정, 기존 로직과 유사하게 처리)
+        if request_data.wedding_packages is not None:
+            print(f"웨딩 패키지 업데이트 시작 (견적 ID: {db_estimate.id})")
+            existing_db_package = db_estimate.wedding_packages[0] if db_estimate.wedding_packages else None
+            payload_package_data = request_data.wedding_packages[0] if request_data.wedding_packages else None
+
+            if payload_package_data is None and existing_db_package:
+                # 패키지 삭제 요청
+                print(f"기존 웨딩 패키지 삭제 (ID: {existing_db_package.id})")
+                # 하위 패키지 아이템들도 먼저 삭제 (또는 DB cascade 설정 확인)
+                for item in existing_db_package.wedding_package_items:
+                    db.delete(item)
+                db.delete(existing_db_package)
+            elif payload_package_data:
+                # 패키지 추가 또는 업데이트
+                target_package = existing_db_package
+                if not target_package: # 새 패키지 생성
+                    print("새 웨딩 패키지 생성")
+                    target_package = WeddingPackageModel(estimate_id=db_estimate.id)
+                    db.add(target_package)
+                else:
+                    print(f"기존 웨딩 패키지 업데이트 (ID: {target_package.id})")
+
+                # 패키지 기본 정보 업데이트
+                if payload_package_data.type is not None: target_package.type = payload_package_data.type
+                if payload_package_data.name is not None: target_package.name = payload_package_data.name
+                if payload_package_data.total_price is not None: target_package.total_price = payload_package_data.total_price
+                if payload_package_data.is_total_price is not None: target_package.is_total_price = payload_package_data.is_total_price
+                db.flush() # 패키지 ID (신규 시) 확보
+
+                # WeddingPackageItems 업데이트 (update_child_list_items 사용)
+                if payload_package_data.wedding_package_items is not None:
+                    print(f"웨딩 패키지 아이템 업데이트 시작 (패키지 ID: {target_package.id})")
+                    update_child_list_items(
+                        db=db,
+                        db_parent_instance=target_package,
+                        current_db_child_list=target_package.wedding_package_items, # Eager loaded
+                        payload_child_list=payload_package_data.wedding_package_items,
+                        child_model_class=WeddingPackageItemModel,
+                        parent_foreign_key_name="wedding_package_id"
+                    )
+        
+        db.commit()
+        db.refresh(db_estimate) # 모든 관계를 포함하여 최신 상태로 리프레시
+        
+        print(f"표준 견적서(ID:{estimate_id}) 전체 정보 업데이트 완료 (사진 로직 수정됨)")
+        # 실제 응답은 response_model에 정의된 스키마를 따름
+        return db_estimate # 예시로 db_estimate 객체 반환
+
+    except SQLAlchemyError as e:
+        db.rollback()
+        print(f"DB 오류 발생 (Estimate ID: {estimate_id}): {str(e)}")
+        # 프로덕션에서는 상세 오류를 로깅하고, 클라이언트에게는 일반적인 오류 메시지 전달
+        raise HTTPException(
+            status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+            detail="데이터베이스 처리 중 오류가 발생했습니다."
+        )
+    except HTTPException: # 이미 처리된 HTTPException은 그대로 다시 발생시킴
+        db.rollback() # 필요에 따라 롤백
+        raise
+    except Exception as e: # 그 외 모든 예외
+        db.rollback()
+        print(f"일반 서버 오류 발생 (Estimate ID: {estimate_id}): {str(e)}")
+        # 프로덕션에서는 상세 오류를 로깅
+        raise HTTPException(
+            status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+            detail=f"서버 내부 오류가 발생했습니다."
+        )
+
+
 
 @router.post('/get_admin_estimate')
 async def get_admin_estimate(request : Request, db: Session = Depends(get_db)):
