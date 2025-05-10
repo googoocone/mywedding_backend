@@ -24,6 +24,8 @@ class UserWeddingInfo(Base):
     wedding_region = Column(String, nullable=True)
     expected_buget = Column(Integer, nullable=True)
     prefered_hall_type = Column(String, nullable=True)
+    attendance = Column(Integer, nullable=True)
+    nickname = Column(String, nullable=True)
     create_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
 
     user = relationship("User", back_populates="user_wedding_info")

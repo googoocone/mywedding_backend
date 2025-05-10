@@ -5,7 +5,7 @@ from grpc import Status
 from pydantic import BaseModel, HttpUrl
 
 from utils.hash import hash_password, verify_password
-from utils.security import create_admin_token, verify_jwt_token
+from utils.security import create_admin_token, verify_admin_jwt_token, verify_jwt_token
 from auth.firebase import get_firebase_bucket, extract_firebase_path_from_url
 from starlette.responses import Response
 from sqlalchemy.orm import Session, joinedload, selectinload
@@ -1254,34 +1254,56 @@ async def delete_standard_estimate(estimate_id: int, db: Session = Depends(get_d
 def get_current_user(request: Request, response: Response, db: Session = Depends(get_db)):
     token = request.cookies.get("admin_token")
     if not token:
-        raise HTTPException(status_code=401, detail="Access token missing")
+        raise HTTPException(status_code=401, detail="Access token missing. Please log in.")
 
-    result = verify_jwt_token(token)
-    payload = result["payload"]
-    if not result:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    token_data = verify_admin_jwt_token(token) # 수정된 검증 함수 사용
+
+    if not token_data:
+        # 토큰이 유효하지 않거나 만료된 경우, 클라이언트 측 쿠키 삭제
+        response.delete_cookie(
+            key="admin_token",
+            path="/",
+            # domain=None, # 생성 시 명시 안 했으면 생략 또는 동일하게 설정
+            secure=True,   # HTTPS 환경에서만 쿠키 전송 (토큰 생성 시와 일치)
+            httponly=True, # JavaScript에서 쿠키 접근 불가 (토큰 생성 시와 일치)
+            samesite="None" # CSRF 방지, secure=True와 함께 사용 (토큰 생성 시와 일치)
+        )
+        # 클라이언트에게 명확한 메시지와 함께 401 응답
+        raise HTTPException(status_code=401, detail="Your session has expired or the token is invalid. Please log in again.")
+
+    payload = token_data["payload"]
+    admin_id = payload.get("sub") # "sub"는 일반적으로 user ID를 담는 표준 클레임
+
+    if not admin_id:
+        # "sub" 클레임이 없는 경우도 유효하지 않은 토큰으로 간주
+        response.delete_cookie(key="admin_token", path="/", secure=True, httponly=True, samesite="None")
+        raise HTTPException(status_code=401, detail="Invalid token payload. Please log in again.")
     
-    admin_id=payload.get("sub")
     admin = db.query(Admin).filter(Admin.id == admin_id).first()
 
     if not admin:
-        raise HTTPException(status_code=404, detail="Admin not found")
+        # 해당 ID의 관리자가 DB에 없는 경우
+        response.delete_cookie(key="admin_token", path="/", secure=True, httponly=True, samesite="None")
+        raise HTTPException(status_code=404, detail="Admin not found. Please log in again.")
 
     return {
         "admin": {
+            "id": admin.id, # ID도 반환하는 것이 유용할 수 있습니다.
             "name": admin.name,
+            # 필요한 다른 관리자 정보
         }
     }
 
-
 @router.post("/logout")
 def logout(response: Response):
+    # 로그아웃 시 쿠키 삭제 로직은 이미 잘 구현되어 있습니다.
+    # 생성 시 사용된 옵션과 동일하게 지정해야 합니다.
     response.delete_cookie(
-    key="admin_token",
-    path="/",
-    # domain=None, # 생성 시 명시 안 했으면 생략
-    secure=True, 
-    httponly=True,
-    samesite="None" 
-)
+        key="admin_token",
+        path="/",
+        # domain=None, # 생성 시와 동일하게
+        secure=True, 
+        httponly=True,
+        samesite="None" 
+    )
     return {"message": "로그아웃 완료"}

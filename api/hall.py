@@ -21,11 +21,11 @@ def get_wedding_halls(db:Session = Depends(get_db)):
 
 
 @router.get(
-    "/get_detail_wedding_hall/{company_id}",
+    "/get_detail_wedding_hall/{company_name}",
     summary="특정 업체의 모든 홀과 그 홀의 모든 견적서 상세 정보를 가져옵니다."
 )
 async def get_company_full_details(
-    company_id: int = Path(..., description="정보를 가져올 업체의 고유 ID"),
+    company_name: str = Path(..., description="정보를 가져올 업체의 고유 이름"),
     db: Session = Depends(get_db)
 ):
     """
@@ -33,6 +33,7 @@ async def get_company_full_details(
     모든 견적서 (표준 및 일반), 그리고 각 견적서에 포함된 식대, 옵션, 기타 비용,
     웨딩 패키지 및 패키지 아이템 상세 정보를 깊이 로딩하여 반환합니다.
     """
+    print(company_name)
     try:
         # WeddingCompany를 기준으로 쿼리 시작
         # company_id로 필터링
@@ -62,12 +63,12 @@ async def get_company_full_details(
                 )
             )
         ).filter(
-            WeddingCompany.id == company_id
-        ).first()
+            WeddingCompany.name == company_name
+        ).all()
 
         # 업체가 없는 경우 404 에러 반환
         if not company:
-            raise HTTPException(status_code=404, detail=f"업체 ID {company_id}를 찾을 수 없습니다.")
+            raise HTTPException(status_code=404, detail=f"업체 ID {company_name}를 찾을 수 없습니다.")
 
         print("company", company)
         # Pydantic response_model에 의해 SQLAlchemy 객체가 자동으로 스키마로 변환되어 반환됩니다.

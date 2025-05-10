@@ -66,6 +66,28 @@ def verify_jwt_token(token: str, db: Session = Depends(get_db)) -> dict | None:
         return None
 
 
+def verify_admin_jwt_token(token: str) -> dict | None:
+    """
+    Admin JWT 토큰을 검증합니다.
+    만료되었거나 유효하지 않은 경우 None을 반환합니다.
+    리프레시 토큰 로직은 없습니다.
+    """
+    try:
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        # 여기서 payload에 admin 역할이나 특정 클레임이 있는지 추가 검증을 할 수도 있습니다.
+        # 예: if payload.get("role") != "admin": return None
+        return {"payload": payload}
+    except jwt.ExpiredSignatureError:
+        print("❌ Admin token has expired.")
+        return None  # 토큰 만료 시 None 반환
+    except jwt.InvalidTokenError:
+        print("❌ Invalid admin token.")
+        return None  # 유효하지 않은 토큰(서명 오류, 형식 오류 등) 시 None 반환
+    except Exception as e:
+        # 기타 예상치 못한 오류 발생 시 로깅하고 None 반환
+        print(f"❌ An unexpected error occurred during admin token validation: {str(e)}")
+        return None
+
 def create_access_token(user: dict | object) -> str:
     """
     access token 발급

@@ -21,6 +21,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://localhost:3001",
+        "http://127.0.0.1:3000",
         "https://myweddingdiary-admin.co.kr",
         "https://www.myweddingdiary-admin.co.kr",
         "https://myweddingdiary.co.kr",

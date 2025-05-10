@@ -29,7 +29,7 @@ def kakao_login(body: CodeRequest, response : Response,db: Session = Depends(get
     client_id = os.getenv("KAKAO_CLIENT_ID")
     redirect_uri = os.getenv("KAKAO_REDIRECT_URI")
     client_secret = os.getenv("KAKAO_CLIENT_SECRET")
-
+    redirect_uri = "http://localhost:3000/auth/kakao/callback"
     # 카카오 인증
     token_response = requests.post(
         "https://kauth.kakao.com/oauth/token",
@@ -52,7 +52,7 @@ def kakao_login(body: CodeRequest, response : Response,db: Session = Depends(get
         headers={"Authorization": f"Bearer {kakao_access_token}"}
     )
     user_info = kakao_user_info_res.json()
-
+    print("user_info", user_info)
     user_id = user_info["id"]
     user_name = user_info["properties"]["nickname"]
     user_profile_image = user_info["properties"]["profile_image"]
@@ -157,6 +157,7 @@ def get_current_user(request: Request, response: Response, db: Session = Depends
         "user": {
             "name": user.name,
             "profile_image": user.profile_image,
+            "id" : user.id
         }
     }
 
