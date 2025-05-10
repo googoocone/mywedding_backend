@@ -31,4 +31,5 @@ class PackageTypeEnum(str, enum.Enum):
 class PackageItemTypeEnum(str, enum.Enum):
     스튜디오 = "스튜디오"
     드레스 = "드레스"
-    메이크업 = "메이크업"
+    헤어메이크업 = "헤어메이크업"
+    부케 = "부케"
