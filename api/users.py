@@ -57,41 +57,7 @@ class WeddingInfoCreate(BaseModel):
     estimatedGuests: Optional[int]
     preferredHallType: Optional[str]
 
-@router.post("/wedding-info", response_model=WeddingInfoSchema)
-def upsert_wedding_info(
-    data: WeddingInfoCreate,
-    current_user: dict = Depends(verify_jwt_token),
-    db: Session = Depends(get_db)
-):
-    user_id = current_user["payload"]["sub"]
-    print('user_id', user_id)
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    # Update nickname
-    user.name = data.nickname
-    db.add(user)
-    info = db.query(UserWeddingInfo).filter(
-        UserWeddingInfo.create_by_user_id == user_id
-    ).first()
-    if info:
-        info.wedding_date = data.weddingDate
-        info.wedding_region = data.weddingRegion
-        info.expected_buget = data.weddingBudget
-        info.attendance = data.estimatedGuests
-        info.prefered_hall_type = data.preferredHallType
-    else:
-        info = UserWeddingInfo(
-            wedding_date = data.weddingDate,
-            wedding_region = data.weddingRegion,
-            expected_buget = data.weddingBudget,
-            attendance = data.estimatedGuests,
-            prefered_hall_type = data.preferredHallType,
-            create_by_user_id = user_id
-        )
-        db.add(info)
-    db.commit()
-    return data
+
 
 # Nickname Duplication Check
 

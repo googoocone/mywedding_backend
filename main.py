@@ -25,6 +25,7 @@ app.add_middleware(
         "https://myweddingdiary-admin.co.kr",
         "https://www.myweddingdiary-admin.co.kr",
         "https://myweddingdiary.co.kr",
+        "https://www.myweddingdiary.co.kr"
         "https://myweddingdiary-server.co.kr"
 
     ],
