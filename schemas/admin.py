@@ -1,8 +1,22 @@
 # schemas/admin.py
 
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl
 from typing import List, Optional
 from datetime import date, time as times
+import enum
+
+class HallTypeEnum(str, enum.Enum):
+    야외 = "야외"
+    호텔 = "호텔"
+    가든 = "가든"
+    스몰 = "스몰"
+    하우스 = "하우스"
+    컨벤션 = "컨벤션"
+    채플 = "채플"
+
+class MoodEnum(str, enum.Enum): # HallSchema에 mood가 str로 되어있으므로, Enum 사용 권장
+    밝은 = "밝은"
+    어두운 = "어두운"
 
 class CodeRequest(BaseModel):
     id: str
@@ -18,13 +32,18 @@ class HallIncludeSchema(BaseModel):
     category: str
     subcategory: str
 
-class HallSchema(BaseModel):
+class HallSchema(BaseModel): # 제공해주신 스키마
     name: str
     interval_minutes: int
     guarantees: int
     parking: int
-    type: str
-    mood: str
+    # ✨ [수정됨] type 필드를 HallTypeEnum 리스트로 변경, 기본값 빈 리스트
+    type: Optional[List[HallTypeEnum]]
+    mood: MoodEnum # 문자열 대신 정의된 Enum 사용 권장, Optional 여부 확인 필요 (현재는 필수로 가정)
+
+    class Config:
+        orm_mode = True
+        use_enum_values = True # Enum 값을 실제 문자열 값으로 사용
 
 class MealTypeSchema(BaseModel):
     meal_type: str
@@ -81,7 +100,7 @@ class WeddingCompanyCreate(BaseModel):
     estimate: EstimateSchema
     estimate_options: Optional[List[EstimateOptionSchema]] = []
 
-    wedding_package: WeddingPackageSchema
-    package_items: Optional[List[PackageItemSchema]] = []
+    # wedding_package: WeddingPackageSchema
+    # package_items: Optional[List[PackageItemSchema]] = []
 
     etc: Optional[EtcSchema] = None

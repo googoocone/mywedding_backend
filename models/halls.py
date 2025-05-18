@@ -12,7 +12,7 @@ class Hall(Base):
     interval_minutes = Column(Integer, nullable=True)
     guarantees = Column(Integer, nullable=True)
     parking = Column(Integer, nullable=True)
-    type = Column(Enum(HallTypeEnum), nullable=True)
+    type = Column(String, nullable=True) 
     mood = Column(Enum(MoodEnum), nullable=True)
 
     estimates = relationship("Estimate",cascade="all", back_populates="hall")

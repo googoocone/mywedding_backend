@@ -87,72 +87,102 @@ def admin_signin(body: CodeRequest, response: Response,  db:Session=Depends(get_
     
 @router.post("/create-standard-estimate")
 def create_standard_estimate(
-    payload: WeddingCompanyCreate,
+    payload: WeddingCompanyCreate, # 수정된 Pydantic 스키마 사용
     db: Session = Depends(get_db),
 ):
-    print("payload", payload)
+    print("payload received:", payload.model_dump_json(indent=2)) # Pydantic V2
+    # print("payload received (V1):", payload.json(indent=2)) # Pydantic V1
     try:
-        # --- ORM으로만 생성 ---
         company = WeddingCompanyModel(
             name=payload.name,
             address=payload.address,
             phone=payload.phone,
             homepage=str(payload.homepage) if payload.homepage else None,
             accessibility=payload.accessibility,
-            lat=payload.mapx,
-            lng = payload.mapy,
+            lat=payload.mapx, # DB 타입이 숫자라면 float(payload.mapx) 등으로 변환 필요
+            lng=payload.mapy, # DB 타입이 숫자라면 float(payload.mapy) 등으로 변환 필요
             ceremony_times=payload.ceremony_times,
         )
-        db.add(company); db.flush()
+        db.add(company)
+        db.flush()
+
+        hall_data_to_save = payload.hall.dict(exclude_unset=True)
+
+        # ✨ 수정된 'hall.type' 필드 처리 로직
+        # payload.hall.type은 이미 Pydantic에 의해 List[HallTypeEnum] (또는 None/빈 리스트)임
+        actual_hall_type_list = payload.hall.type 
+
+        if actual_hall_type_list: # None이 아니고 빈 리스트도 아닌 경우 (내용이 있는 리스트)
+            # 각 HallTypeEnum 멤버의 .value (문자열 값)를 사용하여 join
+            hall_data_to_save["type"] = ",".join(actual_hall_type_list) 
+        else: # 빈 리스트거나 None인 경우 (프론트에서 아무것도 선택 안 함)
+            hall_data_to_save["type"] = None # DB에 null로 저장 (또는 "" - DB 컬럼 정책에 따라)
+        
+        # print(f"Processed hall.type for DB: {hall_data_to_save.get('type')}")
 
         hall = HallModel(
             wedding_company_id=company.id,
-            **payload.hall.dict()
+            **hall_data_to_save
         )
-        db.add(hall); db.flush()
+        db.add(hall)
+        db.flush()
 
-        for inc in payload.hall_includes:
-            db.add(HallIncludeModel(hall_id=hall.id, **inc.dict()))
+        for inc_payload in payload.hall_includes:
+            db.add(HallIncludeModel(hall_id=hall.id, **inc_payload.dict()))
 
-        for photo in payload.hall_photos:
-            db.add(HallPhotoModel(hall_id=hall.id, **photo.dict()))
+        for photo_payload in payload.hall_photos:
+            db.add(HallPhotoModel(hall_id=hall.id, **photo_payload.dict()))
 
+        # estimate.date와 estimate.time이 프론트에서 ""로 오고 스키마에서 Optional[str]=None이면
+        # payload.estimate.date는 ""일 수 있음. DB 저장 전에 None으로 변환 필요 시 여기서 처리.
+        estimate_data_to_save = payload.estimate.dict(exclude_unset=True)
+        if estimate_data_to_save.get("date") == "":
+            estimate_data_to_save["date"] = None
+        if estimate_data_to_save.get("time") == "":
+            estimate_data_to_save["time"] = None
+            
         estimate = EstimateModel(
             hall_id=hall.id,
-            hall_price=payload.estimate.hall_price,
-            type=payload.estimate.type,
-            date=payload.estimate.date,
-            time = payload.estimate.time,
-            penalty_amount = payload.estimate.penalty_amount,
-            penalty_detail = payload.estimate.penalty_detail,
-            created_by_user_id="131da9a7-6b64-4a0e-a75d-8cd798d698bd",
+            # **payload.estimate.dict(exclude_unset=True) # 이렇게 하면 date/time 전처리 불가
+            **estimate_data_to_save, # 전처리된 데이터 사용
+            created_by_user_id="131da9a7-6b64-4a0e-a75d-8cd798d698bd", # 실제 사용자 ID로 변경
         )
-        db.add(estimate); db.flush()
+        db.add(estimate)
+        db.flush()
 
-        for m in payload.meal_price:
-            db.add(MealPriceModel(estimate_id=estimate.id, **m.dict()))
+        for m_payload in payload.meal_price:
+            db.add(MealPriceModel(estimate_id=estimate.id, **m_payload.dict()))
 
-        for opt in payload.estimate_options:
-            db.add(EstimateOptionModel(estimate_id=estimate.id, **opt.dict()))
+        if payload.estimate_options: # Optional 이므로 None일 수 있음
+            for opt_payload in payload.estimate_options:
+                db.add(EstimateOptionModel(estimate_id=estimate.id, **opt_payload.dict()))
 
-        if payload.etc:
+        if payload.etc: # Optional
             db.add(EtcModel(estimate_id=estimate.id, **payload.etc.dict()))
 
-        wp = WeddingPackageModel(
-            estimate_id=estimate.id,
-            **payload.wedding_package.dict()
-        )
-        db.add(wp); db.flush()
+        # # ✨ wedding_package 및 package_items 처리 (스키마 수정 후)
+        # if payload.wedding_package: # Optional이므로 None일 수 있음
+        #     wp_data = payload.wedding_package.dict(exclude_unset=True)
+        #     wp = WeddingPackageModel(
+        #         estimate_id=estimate.id,
+        #         **wp_data
+        #     )
+        #     db.add(wp)
+        #     db.flush()
 
-        for item in payload.package_items:
-            db.add(WeddingPackageItemModel(wedding_package_id=wp.id, **item.dict()))
-
+        #     if payload.package_items: # Optional이므로 None일 수 있고, 기본값은 빈 리스트
+        #         for item_payload in payload.package_items: # 이제 AttributeError 발생 안 함
+        #             db.add(WeddingPackageItemModel(wedding_package_id=wp.id, **item_payload.dict()))
+        
         db.commit()
         return {"message": "업체 등록 완료", "company_id": company.id}
 
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"DB 저장 실패: {e}")
+        import traceback
+        traceback.print_exc() # 서버 로그에 전체 스택 트레이스 출력
+        raise HTTPException(status_code=500, detail=f"DB 저장 실패: {str(e)}")
+
     
 @router.post('/create_admin_estimate')
 async def create_admin_estimate(
@@ -775,9 +805,9 @@ async def update_standard_estimate_full( # 함수 이름 변경 (예: update_sta
                         firebase_path = extract_firebase_path_from_url(photo_record_to_delete.url)
                         if firebase_path:
                             try:
-                                blob = bucket.blob(firebase_path)
+                                blob = bucket.blob(firebase_path.rsplit('/',1)[0])
                                 blob.delete()
-                                print(f"  Firebase 파일 삭제 성공 (ID: {photo_id_to_delete}): {firebase_path}")
+                                print(f"  Firebase 파일 삭제 성공 (ID: {photo_id_to_delete}): {firebase_path.rsplit('/',1)[0]}")
                             except Exception as e_fb_del:
                                 if "No such object" in str(e_fb_del) or (hasattr(e_fb_del, 'code') and e_fb_del.code == 404):
                                     print(f"  경고: Firebase 파일 이미 없음 (ID: {photo_id_to_delete}, Path: {firebase_path}): {e_fb_del}")
