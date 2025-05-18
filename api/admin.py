@@ -719,9 +719,9 @@ async def update_standard_estimate_full( # 함수 이름 변경 (예: update_sta
         persisted_or_created_photo_ids = set()
 
         # 단계 1: final_photos 목록 처리 (유지/업데이트 또는 신규 추가)
-        if request_data.final_photos:
-            print(f"처리할 최종 사진 목록 {len(request_data.final_photos)}개 (홀 ID: {db_estimate.hall.id})")
-            for photo_payload in request_data.final_photos:
+        if request_data.photos_data:
+            print(f"처리할 최종 사진 목록 {len(request_data.photos_data)}개 (홀 ID: {db_estimate.hall.id})")
+            for photo_payload in request_data.photos_data:
                 db_photo_to_update = None
                 if photo_payload.id and photo_payload.id in current_db_photos_map:
                     db_photo_to_update = current_db_photos_map[photo_payload.id]

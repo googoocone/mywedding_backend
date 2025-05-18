@@ -186,7 +186,7 @@ class StandardEstimateUpdateRequestSchemaV2(BaseModel):
     etcs: Optional[List[EtcUpdateSchema]] = None
     wedding_packages: Optional[List[WeddingPackageUpdateSchema]] = None
 
-    final_photos: Optional[List[FinalHallPhotoSchema]] = [] # ✅ 수정된 스키마 사용
+    photos_data: Optional[List[FinalHallPhotoSchema]] = [] # ✅ 수정된 스키마 사용
     photo_ids_to_delete: Optional[List[int]] = []
 
     class Config:

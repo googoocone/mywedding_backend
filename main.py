@@ -7,12 +7,6 @@ from api import auth, users, admin,hall
 
 app = FastAPI()
 
-import models.users
-import models.company
-import models.halls
-import models.estimate
-import models.package
-
 from core.database import engine, Base
 Base.metadata.create_all(bind=engine)
 
