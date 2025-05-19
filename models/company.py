@@ -13,6 +13,6 @@ class WeddingCompany(Base):
     accessibility = Column(Text, nullable=True)
     lat = Column(Integer, nullable=True)
     lng = Column(Integer, nullable=True)
-    ceremony_times = Column(JSON, nullable=True)
+    ceremony_times = Column(String, nullable=True)
 
     halls = relationship("Hall", back_populates="wedding_company")

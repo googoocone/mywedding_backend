@@ -32,18 +32,18 @@ class HallIncludeSchema(BaseModel):
     category: str
     subcategory: str
 
-class HallSchema(BaseModel): # 제공해주신 스키마
+class HallSchema(BaseModel): # 사용자 제공 스키마
     name: str
     interval_minutes: int
     guarantees: int
     parking: int
-    # ✨ [수정됨] type 필드를 HallTypeEnum 리스트로 변경, 기본값 빈 리스트
-    type: Optional[List[HallTypeEnum]]
-    mood: MoodEnum # 문자열 대신 정의된 Enum 사용 권장, Optional 여부 확인 필요 (현재는 필수로 가정)
+    # ✨ type: Optional[List[HallTypeEnum]]은 이미 올바르게 되어 있습니다. 기본값만 명시적으로 추가.
+    type: Optional[List[HallTypeEnum]] = Field(default_factory=list) 
+    mood: MoodEnum 
 
     class Config:
         orm_mode = True
-        use_enum_values = True # Enum 값을 실제 문자열 값으로 사용
+        use_enum_values = True
 
 class MealTypeSchema(BaseModel):
     meal_type: str
