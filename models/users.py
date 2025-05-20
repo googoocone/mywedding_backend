@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, TIMESTAMP, func, Date, ForeignKey
+from sqlalchemy import Boolean, Column, String, Integer, TIMESTAMP, func, Date, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from core.database import Base
 from sqlalchemy.orm import relationship
@@ -21,11 +21,16 @@ class UserWeddingInfo(Base):
     __tablename__ = "user_wedding_info"
     id = Column(Integer, primary_key=True, index=True)
     wedding_date = Column(Date, nullable=True)
-    wedding_region = Column(String, nullable=True)
-    expected_buget = Column(Integer, nullable=True)
-    prefered_hall_type = Column(String, nullable=True)
+    wedding_region = Column(String, nullable=True) # DB ENUM 타입이라면 해당 값들이 ENUM에 정의되어 있어야 함
+    expected_budget = Column(Integer, nullable=True) # 컬럼명 오타 수정 (buget -> budget)
+   
     attendance = Column(Integer, nullable=True)
     nickname = Column(String, nullable=True)
-    create_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    create_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), unique=True, nullable=False) # unique=True 추가 (한 유저는 하나의 웨딩 정보만 가진다고 가정)
+    email = Column(String, nullable=True) # 웨딩 정보용 이메일
 
-    user = relationship("User", back_populates="user_wedding_info")
+    agreed_to_privacy_policy = Column(Boolean, nullable=True, default=False)
+    agreed_to_terms_of_service = Column(Boolean, nullable=True, default=False)
+    agreed_to_marketing = Column(Boolean, nullable=True, default=False)
+
+    user = relationship("User", back_populates="user_wedding_info") # User 모델에 user_wedding_info 관계 설정 필요

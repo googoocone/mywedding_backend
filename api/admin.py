@@ -198,27 +198,6 @@ async def create_admin_estimate(
 
     try:
         
-        # for inc_payload in payload.hall_includes:
-        #     include = HallIncludeModel(
-        #         hall_id=payload.hall_id, # 새로 생성된 hall의 ID 사용
-        #         category=inc_payload.category,
-        #         subcategory=inc_payload.subcategory,
-        #     )
-        #     db.add(include)
-
-
-        # for photo_payload in payload.hall_photos:
-        #      # URL이 null이 아니어야 저장 (프론트엔드에서 null을 보낼 수도 있으므로)
-        #      if photo_payload.url:
-        #         photo = HallPhotoModel(
-        #             hall_id=payload.hall_id, # 새로 생성된 hall의 ID 사용
-        #             url=photo_payload.url,
-        #             order_num=photo_payload.order_num,
-        #             caption=photo_payload.caption,
-        #             is_visible=photo_payload.is_visible,
-        # #         )
-        #         db.add(photo)
-
         estimate = EstimateModel(
             hall_id=payload.hall_id,
             # 최상위 레벨 페이로드에서 필드를 직접 사용

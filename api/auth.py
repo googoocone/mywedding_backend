@@ -45,7 +45,7 @@ def kakao_login(body: CodeRequest, response : Response,db: Session = Depends(get
 
     token_json = token_response.json()
     kakao_access_token = token_json.get("access_token")
-    print("kakao_token", token_json)
+
     # 카카오 유저 정보 획득
     kakao_user_info_res = requests.get(
         "https://kapi.kakao.com/v2/user/me",
@@ -83,7 +83,7 @@ def kakao_login(body: CodeRequest, response : Response,db: Session = Depends(get
         raise HTTPException(status_code=500, detail="Firebase 인증 실패")
 
     firebase_data = firebase_res.json()
-    print("firebase_data", firebase_data["idToken"])
+    # print("firebase_data", firebase_data["idToken"])
 
     if firebase_data["isNewUser"] == True:
         user = User(
@@ -146,10 +146,11 @@ def get_current_user(request: Request, response: Response, db: Session = Depends
         )
 
     user_id = payload.get("sub")
+    print('user_id', user_id)
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid token payload")
 
-    user = db.query(User).filter(User.uid == user_id).first()
+    user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
