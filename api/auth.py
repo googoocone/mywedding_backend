@@ -57,6 +57,8 @@ def kakao_login(body: CodeRequest, response : Response,db: Session = Depends(get
     user_profile_image = user_info["properties"]["profile_image"]
 
     uid = f"kakao:{user_id}"
+
+    print("uid", uid)
     try:
         firebase_custom_token = auth.create_custom_token(uid)
     except Exception as e:
@@ -77,6 +79,8 @@ def kakao_login(body: CodeRequest, response : Response,db: Session = Depends(get
             "returnSecureToken": True
             }
     )
+
+    print("파이어베이스 res'",firebase_res)
     
     if firebase_res.status_code != 200:
         raise HTTPException(status_code=500, detail="Firebase 인증 실패")
