@@ -210,6 +210,8 @@ def create_access_token(user: object) -> str: # user 타입을 더 구체적으�
     # print("user 객체 정보:", user.__dict__) # 디버깅용
 
     subject_id_str: str
+
+    print("user create_access_token", user)
     if hasattr(user, 'id') and isinstance(getattr(user, 'id'), uuid.UUID):
         # SQLAlchemy 모델 객체 또는 'id' 속성으로 UUID를 가진 객체일 경우
         subject_id_str = str(user.id)
