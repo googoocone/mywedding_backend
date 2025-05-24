@@ -166,8 +166,15 @@ def get_current_user(request: Request, response: Response, db: Session = Depends
 
 @router.post("/logout")
 def logout(response: Response):
-    response.delete_cookie("access_cookie", path='/')
-    print("hi")
+    response.delete_cookie(
+        key="access_cookie",
+        path="/",
+        # domain=None, # 생성 시와 동일하게
+        secure=True, 
+        httponly=True,
+        samesite="None" 
+    )
+
     return {"message": "로그아웃 완료"}
 
 
