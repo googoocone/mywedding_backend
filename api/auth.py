@@ -80,14 +80,14 @@ def kakao_login(body: CodeRequest, response : Response,db: Session = Depends(get
             }
     )
 
-    print("파이어베이스 res'",firebase_res)
+    print("파이어베이스 res'",firebase_res.json())
     
     if firebase_res.status_code != 200:
         raise HTTPException(status_code=500, detail="Firebase 인증 실패")
 
     firebase_data = firebase_res.json()
     # print("firebase_data", firebase_data["idToken"])
-
+    print("firebase_data", firebase_data)
     if firebase_data["isNewUser"] == True:
         user = User(
                     id=str(uuid.uuid4()),
