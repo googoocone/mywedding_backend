@@ -46,6 +46,8 @@ def kakao_login(body: CodeRequest, response : Response,db: Session = Depends(get
     token_json = token_response.json()
     kakao_access_token = token_json.get("access_token")
 
+    print("kakao_acces_token", kakao_access_token)
+
     # 카카오 유저 정보 획득
     kakao_user_info_res = requests.get(
         "https://kapi.kakao.com/v2/user/me",
