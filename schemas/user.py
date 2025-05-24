@@ -40,6 +40,7 @@ class NicknameCheckResp(BaseModel):
 class WeddingInfoSchema(BaseModel):
     nickname: Optional[str] = None
     email: Optional[EmailStr] = None # 웨딩 정보용 이메일
+    phoneNumber:Optional[str] = None
     weddingDate: Optional[date] = None
     weddingRegion: Optional[str] = None
     weddingBudget: Optional[int] = None

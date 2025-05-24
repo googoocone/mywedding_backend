@@ -14,6 +14,7 @@ class User(Base) :
     profile_image = Column(String, nullable=True)
     type = Column(String)
     created_at = Column(TIMESTAMP, server_default=func.now())
+    phone = Column(String, nullable= True)
 
     user_wedding_info = relationship("UserWeddingInfo", back_populates="user")
 
