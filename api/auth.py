@@ -29,7 +29,6 @@ def kakao_login(body: CodeRequest, response : Response,db: Session = Depends(get
     client_id = os.getenv("KAKAO_CLIENT_ID")
     redirect_uri = os.getenv("KAKAO_REDIRECT_URI")
     client_secret = os.getenv("KAKAO_CLIENT_SECRET")
-    redirect_uri = "https://myweddingdiary.co.kr/auth/kakao/callback"
     # 카카오 인증
     token_response = requests.post(
         "https://kauth.kakao.com/oauth/token",
