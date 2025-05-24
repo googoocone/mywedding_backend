@@ -106,7 +106,7 @@ def kakao_login(body: CodeRequest, response : Response,db: Session = Depends(get
     value=access_token,
     httponly=True,
     secure=True,           
-    samesite=None,         
+    samesite="None",         
     max_age=86400,
     path='/'
     )
@@ -140,7 +140,7 @@ def get_current_user(request: Request, response: Response, db: Session = Depends
             value=new_access_token,
             httponly=True,
             secure=True,
-            samesite=None,
+            samesite="None",
             max_age=86400,
             path="/"
         )
