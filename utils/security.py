@@ -213,13 +213,11 @@ def create_access_token(user: object) -> str: # user 타입을 더 구체적으�
 
     print("user create_access_token", user)
     if hasattr(user, 'id') and isinstance(getattr(user, 'id'), uuid.UUID):
-        # SQLAlchemy 모델 객체 또는 'id' 속성으로 UUID를 가진 객체일 경우
         subject_id_str = str(user.id)
-        # print(f"SQLAlchemy User 객체에서 id (UUID) 사용: {subject_id_str}")
+
     elif isinstance(user, dict) and 'id' in user and isinstance(user['id'], uuid.UUID):
-        # 딕셔너리이고 'id' 키에 UUID가 있는 경우
         subject_id_str = str(user['id'])
-        # print(f"딕셔너리에서 id (UUID) 사용: {subject_id_str}")
+
     elif isinstance(user, dict) and 'id' in user and isinstance(user['id'], str):
         try:
             uuid.UUID(user['id']) # 문자열이 유효한 UUID 형식인지 확인

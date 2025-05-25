@@ -54,8 +54,12 @@ def kakao_login(body: CodeRequest, response : Response,db: Session = Depends(get
     user_info = kakao_user_info_res.json()
     user_id = user_info["id"]
     user_name = user_info["properties"]["nickname"]
-    user_profile_image = user_info["properties"]["profile_image"]
 
+    if "profile_image" in user_info["properties"]:
+        user_profile_image = user_info["properties"]["profile_image"]
+    else:
+        user_profile_image = ""
+        
     uid = f"kakao:{user_id}"
 
     print("uid", uid)
