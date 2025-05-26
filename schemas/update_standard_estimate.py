@@ -179,7 +179,7 @@ class StandardEstimateUpdateRequestSchemaV2(BaseModel):
 
     # ✅ 이 필드가 문제의 원인일 가능성이 큼!
     # payload에서 'hall_includes_update_data'로 보내고 있으니, 스키마에도 이 이름으로 필드가 있어야 함.
-    hall_includes_update_data: Optional[List[HallIncludeUpdateSchema]] = None 
+    hall_includes: Optional[List[HallIncludeUpdateSchema]] = None 
 
     meal_prices: Optional[List[MealPriceUpdateSchema]] = None
     estimate_options: Optional[List[EstimateOptionUpdateSchema]] = None

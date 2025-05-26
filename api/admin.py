@@ -799,6 +799,7 @@ async def update_standard_estimate_full( # 함수 이름 변경 (예: update_sta
 
         # --- 나머지 견적서 필드 업데이트 ---
         # Estimate 직접 필드 업데이트
+        
         if request_data.hall_price is not None: db_estimate.hall_price = request_data.hall_price
         if request_data.date is not None: db_estimate.date = request_data.date
         if request_data.time is not None: db_estimate.time = request_data.time
@@ -827,6 +828,7 @@ async def update_standard_estimate_full( # 함수 이름 변경 (예: update_sta
 
         # Hall 기본 정보 업데이트 (hall_photos와 hall_includes는 별도 처리)
         if request_data.hall_update_data and db_estimate.hall:
+            print("홀 이름, 예식간격, 보증인원, 주차, 홀타입, 분위기 업데이트")
             hall_payload = request_data.hall_update_data
             db_hall = db_estimate.hall # 이미 로드된 객체
 
@@ -839,13 +841,14 @@ async def update_standard_estimate_full( # 함수 이름 변경 (예: update_sta
             print(f"홀 기본 정보 업데이트 완료 (ID: {db_hall.id})")
 
         # HallIncludes 업데이트 (update_child_list_items 사용)
-        if request_data.hall_includes_update_data is not None and db_estimate.hall:
+        print("hall_includes", request_data.hall_includes)
+        if request_data.hall_includes is not None and db_estimate.hall: # <--- 수정됨
             print(f"홀 포함사항 업데이트 시작 (홀 ID: {db_estimate.hall.id})")
             update_child_list_items(
                 db=db,
                 db_parent_instance=db_estimate.hall,
                 current_db_child_list=db_estimate.hall.hall_includes, # Eager loaded
-                payload_child_list=request_data.hall_includes_update_data,
+                payload_child_list=request_data.hall_includes, # <--- 수정됨
                 child_model_class=HallIncludeModel,
                 parent_foreign_key_name="hall_id"
             )
@@ -918,16 +921,16 @@ async def update_standard_estimate_full( # 함수 이름 변경 (예: update_sta
                 db.flush() # 패키지 ID (신규 시) 확보
 
                 # WeddingPackageItems 업데이트 (update_child_list_items 사용)
-                if payload_package_data.wedding_package_items is not None:
-                    print(f"웨딩 패키지 아이템 업데이트 시작 (패키지 ID: {target_package.id})")
-                    update_child_list_items(
-                        db=db,
-                        db_parent_instance=target_package,
-                        current_db_child_list=target_package.wedding_package_items, # Eager loaded
-                        payload_child_list=payload_package_data.wedding_package_items,
-                        child_model_class=WeddingPackageItemModel,
-                        parent_foreign_key_name="wedding_package_id"
-                    )
+                # if payload_package_data.wedding_package_items is not None:
+                #     print(f"웨딩 패키지 아이템 업데이트 시작 (패키지 ID: {target_package.id})")
+                #     update_child_list_items(
+                #         db=db,
+                #         db_parent_instance=target_package,
+                #         current_db_child_list=target_package.wedding_package_items, # Eager loaded
+                #         payload_child_list=payload_package_data.wedding_package_items,
+                #         child_model_class=WeddingPackageItemModel,
+                #         parent_foreign_key_name="wedding_package_id"
+                #     )
         
         db.commit()
         db.refresh(db_estimate) # 모든 관계를 포함하여 최신 상태로 리프레시
