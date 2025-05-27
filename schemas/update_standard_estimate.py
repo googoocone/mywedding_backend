@@ -34,7 +34,7 @@ class HallUpdateSchema(BaseModel):
     interval_minutes: Optional[int] = None
     guarantees: Optional[int] = None
     parking: Optional[int] = None
-    type: Optional[str] = None # 실제로는 HallType Enum 사용 권장
+    type: Optional[List[str]] = None 
     mood: Optional[str] = None # 실제로는 MoodType Enum 사용 권장
     # wedding_company_id는 변경하지 않거나, 별도 로직으로 처리
     hall_includes: Optional[List[HallIncludeUpdateSchema]] = [] # 프론트에서 hall_includes_update_data로 보냄
