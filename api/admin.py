@@ -830,9 +830,7 @@ async def update_standard_estimate_full(
                 if hall_payload.type is not None:  # type 필드가 요청 페이로드에 포함된 경우
                     print(f"hall_payload.type (프론트엔드에서 받은 파이썬 리스트): {hall_payload.type}") # 예: ['야외', '가든']
 
-                if hall_payload.type:  # 리스트가 비어있지 않고 내용이 있는 경우 (선택된 타입이 있음)
-                    # 파이썬 문자열 리스트를 쉼표로 구분된 단일 문자열로 변환
-                    # 예: ['야외', '가든'] -> "야외,가든"
+                if hall_payload.type:  
                     comma_separated_string_types = ",".join(hall_payload.type)
                     
                     db_hall.type = comma_separated_string_types # 변환된 단일 문자열을 할당
