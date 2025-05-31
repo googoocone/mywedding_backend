@@ -1,6 +1,6 @@
 # schemas.py 파일 내용
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Optional
 from datetime import date, time as times
 # Enum types (assuming correct import paths)
@@ -36,7 +36,7 @@ class HallFieldsPayload(BaseModel):
     interval_minutes: int
     guarantees: int
     parking: int
-    type: HallTypeEnum
+    # type: Optional[List[HallTypeEnum]] = Field(default_factory=list) 
     mood: MoodEnum
 
 # JSON: payload.etcs (array) - Note: JSON key is 'etcs', not 'etc'
@@ -125,7 +125,7 @@ class AdminEstimateCreateRequestPayload(BaseModel):
     meal_prices: List[MealPriceItemPayload] = []
     estimate_options: List[EstimateOptionItemPayload] = []
     hall_includes: List[HallIncludeItemPayload] = []
-    hall_photos: List[HallPhotoItemPayload] = []
+    # hall_photos: List[HallPhotoItemPayload] = []
     # JSON 예시에서 최상위 레벨 리스트로 있습니다. (wedding_package 내부에도 있습니다)
     wedding_package_items: List[WeddingPackageItemPayload] = []
 
