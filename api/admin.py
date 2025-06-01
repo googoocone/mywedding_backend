@@ -313,6 +313,8 @@ async def update_admin_estimate(
         existing_estimate.hall_price = payload.hall_price
         existing_estimate.date = payload.date
         existing_estimate.time = payload.time
+        existing_estimate.penalty_amount = payload.penalty_amount
+        existing_estimate.penalty_detail = payload.penalty_detail
         # type, created_by_user_id는 일반적으로 수정하지 않습니다.
 
         # 3. HallInclude 업데이트 또는 생성
@@ -343,32 +345,32 @@ async def update_admin_estimate(
                 db.add(include)
 
         # 4. HallPhoto 업데이트 또는 생성 (유사한 로직)
-        existing_photos = db.query(HallPhotoModel).filter(HallPhotoModel.hall_id == payload.hall_id).all()
-        existing_photo_ids = {photo.id for photo in existing_photos}
-        payload_photo_ids = {photo.id for photo in payload.hall_photos if photo.id is not None}
+        # existing_photos = db.query(HallPhotoModel).filter(HallPhotoModel.hall_id == payload.hall_id).all()
+        # existing_photo_ids = {photo.id for photo in existing_photos}
+        # payload_photo_ids = {photo.id for photo in payload.hall_photos if photo.id is not None}
 
-        for photo in existing_photos:
-            if photo.id not in payload_photo_ids:
-                db.delete(photo)
+        # for photo in existing_photos:
+        #     if photo.id not in payload_photo_ids:
+        #         db.delete(photo)
 
-        for photo_payload in payload.hall_photos:
-            if photo_payload.url:  # URL이 있는 경우만 처리
-                if photo_payload.id in existing_photo_ids:
-                    existing = db.query(HallPhotoModel).filter(HallPhotoModel.id == photo_payload.id).first()
-                    if existing:
-                        existing.url = photo_payload.url
-                        existing.order_num = photo_payload.order_num
-                        existing.caption = photo_payload.caption
-                        existing.is_visible = photo_payload.is_visible
-                else:
-                    photo = HallPhotoModel(
-                        hall_id=payload.hall_id,
-                        url=photo_payload.url,
-                        order_num=photo_payload.order_num,
-                        caption=photo_payload.caption,
-                        is_visible=photo_payload.is_visible,
-                    )
-                    db.add(photo)
+        # for photo_payload in payload.hall_photos:
+        #     if photo_payload.url:  # URL이 있는 경우만 처리
+        #         if photo_payload.id in existing_photo_ids:
+        #             existing = db.query(HallPhotoModel).filter(HallPhotoModel.id == photo_payload.id).first()
+        #             if existing:
+        #                 existing.url = photo_payload.url
+        #                 existing.order_num = photo_payload.order_num
+        #                 existing.caption = photo_payload.caption
+        #                 existing.is_visible = photo_payload.is_visible
+        #         else:
+        #             photo = HallPhotoModel(
+        #                 hall_id=payload.hall_id,
+        #                 url=photo_payload.url,
+        #                 order_num=photo_payload.order_num,
+        #                 caption=photo_payload.caption,
+        #                 is_visible=photo_payload.is_visible,
+        #             )
+        #             db.add(photo)
 
         # 5. MealPrice 업데이트 또는 생성 (estimate_id 기반)
         existing_meal_prices = db.query(MealPriceModel).filter(MealPriceModel.estimate_id == existing_estimate.id).all()
