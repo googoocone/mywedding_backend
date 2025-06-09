@@ -12,7 +12,6 @@ from typing import List, Dict, Any, Optional # 응답 타입을 명확히 하기
 router = APIRouter(prefix='/hall')
 
 @router.get('/get_wedding_halls')
-
 def get_wedding_halls(db:Session = Depends(get_db)):
     companies_query = db.query(WeddingCompany).options(selectinload(WeddingCompany.halls).selectinload(Hall.hall_photos))
     companies = companies_query.all()
