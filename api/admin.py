@@ -208,6 +208,7 @@ async def create_admin_estimate(
             time = payload.time,
             penalty_amount = payload.penalty_amount,
             penalty_detail = payload.penalty_detail,
+
             created_by_user_id="131da9a7-6b64-4a0e-a75d-8cd798d698bd", # 사용자 ID 로직
         )
         print("--- 디버그 정보 ---")
@@ -216,6 +217,19 @@ async def create_admin_estimate(
         print("---------------")
         db.add(estimate)
         db.flush() # ID를 얻기 위해 flush
+
+
+        if payload.hall and payload.hall.guarantees is not None:
+            # 1. estimate.hall_id에 해당하는 기존 HallModel 객체를 DB에서 조회
+            existing_hall = db.query(HallModel).filter(HallModel.id == payload.hall_id).first()
+
+            if existing_hall:
+
+                existing_hall.guarantees = payload.hall.guarantees
+                print(f"Hall ID: {payload.hall_id} 의 guarantees가 {payload.hall.guarantees}로 업데이트 예정")
+            else:
+                print(f"경고: Hall ID {payload.hall_id} 에 해당하는 홀을 찾을 수 없습니다. guarantees 업데이트 실패.")
+
 
         for meal_payload in payload.meal_prices:
             meal_price = MealPriceModel(
