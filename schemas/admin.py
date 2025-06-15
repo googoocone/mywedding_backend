@@ -63,6 +63,7 @@ class EstimateSchema(BaseModel):
     type: str
     date: date
     time : Optional[times] = None
+    guarantees : int
     penalty_amount: Optional[int] = None
     penalty_detail: Optional[str] = None
 

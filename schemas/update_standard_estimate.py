@@ -173,7 +173,7 @@ class StandardEstimateUpdateRequestSchemaV2(BaseModel):
     time: Optional[str] = None 
     penalty_amount: Optional[int] = None
     penalty_detail: Optional[str] = None
-
+    guarantees : Optional[int] = None
     wedding_company_update_data: Optional[CompanyUpdateSchema] = None # 예시
     hall_update_data: Optional[HallUpdateSchema] = None # 예시. 여기에 hall_includes를 넣을 수도 있음
 

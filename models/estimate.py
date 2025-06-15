@@ -14,6 +14,7 @@ class Estimate(Base):
     type = Column(Enum(EstimateTypeEnum), nullable=True)
     date = Column(Date, nullable=True)
     time = Column(Time, nullable=True)
+    guarantees = Column(Integer, nullable=True)
     penalty_amount = Column(Integer, nullable=True)
     penalty_detail = Column(String, nullable=True)
     created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))

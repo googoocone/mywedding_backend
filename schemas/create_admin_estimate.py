@@ -119,7 +119,7 @@ class AdminEstimateCreateRequestPayload(BaseModel):
     # ✅ 위약금 관련 필드 추가 (프론트 상태와 동일하게)
     penalty_amount: Optional[int] = None
     penalty_detail: Optional[str] = None
-
+    guarantees : Optional[int] = None
     # Lists at top level in JSON example
     etcs: List[EtcItemPayload] = [] # <-- JSON에 'etcs' (리스트)로 있습니다.
     meal_prices: List[MealPriceItemPayload] = []
