@@ -1,15 +1,15 @@
 # main.py 또는 router_likes.py (새 파일로 분리 추천)
 import os
 from fastapi import APIRouter, Depends, HTTPException, status, Request
-from sqlalchemy.orm import Session
-from sqlalchemy import exc # SQLAlchemy 예외 처리용
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import Uuid, exc # SQLAlchemy 예외 처리용
 from typing import List, Optional
 
 from core.database import get_db # get_db 함수가 있는 파일 임포트
 from models.likes import LikeModel
 from models.company import WeddingCompany
 from models.halls import Hall, HallPhoto
-from schemas.likes import HallInfoResponse, LikeRequest, LikeStatusResponse, LikedWeddingCompanyResponse, WeddingHallPhoto
+from schemas.likes import HallInfoResponse, LikeBatchRequest, LikeBatchResponse, LikeRequest, LikeStatusResponse, LikedWeddingCompanyResponse, WeddingCompanyOut, WeddingHallPhoto
 import jwt # PyJWT 라이브러리 임포트
 
 JWT_SECRET = os.getenv('JWT_SECRET_KEY')
@@ -150,29 +150,109 @@ async def get_user_likes(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"찜 목록을 불러오는데 실패했습니다: {e}")
 
 
-@router.get("/status/{wedding_company_id}", response_model=LikeStatusResponse, status_code=status.HTTP_200_OK)
-async def get_like_status(
-    wedding_company_id: int,
-    request: Request,
+# @router.get("/status/{wedding_company_id}", response_model=LikeStatusResponse, status_code=status.HTTP_200_OK)
+# async def get_like_status(
+#     wedding_company_id: int,
+#     request: Request,
+#     db: Session = Depends(get_db)
+# ):
+#     user_id = None
+#     try:
+#         user_id = await get_current_user_id(request)
+#     except HTTPException:
+#         pass # 로그인하지 않은 경우 user_id는 None으로 유지
+
+#     if not user_id:
+#         return LikeStatusResponse(is_liked=False)
+
+#     try:
+#         # 찜 레코드 존재 여부 확인
+#         like_exists = db.query(LikeModel).filter(
+#             LikeModel.user_id == user_id,
+#             LikeModel.wedding_company_id == wedding_company_id
+#         ).first() is not None
+
+#         return LikeStatusResponse(is_liked=like_exists)
+#     except Exception as e:
+#         print(f"Error checking like status: {e}")
+#         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"찜 상태 확인에 실패했습니다: {e}")
+    
+    
+@router.post('/status/batch', response_model=LikeBatchResponse, status_code=status.HTTP_200_OK)
+async def get_like_status_batch(
+    request_body: LikeBatchRequest,
+    request : Request,
     db: Session = Depends(get_db)
 ):
     user_id = None
     try:
         user_id = await get_current_user_id(request)
     except HTTPException:
-        pass # 로그인하지 않은 경우 user_id는 None으로 유지
+        pass
 
     if not user_id:
-        return LikeStatusResponse(is_liked=False)
+        # 로그인하지 않은 경우 모든 ID에 대해 False 반환
+        return LikeBatchResponse(like_statuses={_id: False for _id in request_body.hall_ids})
+
+    # 사용자가 좋아요를 누른 모든 wedding_company_id 조회
+    # SQLAlchemy의 .in_() 메서드를 사용하여 여러 ID를 한 번에 조회합니다.
+    liked_company_ids = db.query(LikeModel.wedding_company_id).filter(
+        LikeModel.user_id == user_id,
+        LikeModel.wedding_company_id.in_(request_body.hall_ids)
+    ).all()
+    # 결과는 [(1,), (3,), ...] 와 같은 튜플 리스트로 반환되므로 단일 값 리스트로 변환
+    liked_company_ids_set = {company_id for company_id, in liked_company_ids}
+
+    # 요청받은 모든 wedding_company_id에 대한 찜 상태 맵 생성
+    result = {
+        _id: (_id in liked_company_ids_set)
+        for _id in request_body.hall_ids
+    }
+
+    return LikeBatchResponse(like_statuses=result)
+
+@router.get('/my_likes', response_model=List[WeddingCompanyOut], status_code=status.HTTP_200_OK)
+async def get_my_liked_halls(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    user_id = None
+    try:
+        user_id = await get_current_user_id(request)
+    except HTTPException as e:
+        # 로그인하지 않은 경우 401 Unauthorized 반환
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="로그인이 필요합니다."
+        )
 
     try:
-        # 찜 레코드 존재 여부 확인
-        like_exists = db.query(LikeModel).filter(
-            LikeModel.user_id == user_id,
-            LikeModel.wedding_company_id == wedding_company_id
-        ).first() is not None
+        # 1. 현재 user_id가 찜한 모든 wedding_company_id를 Likes 테이블에서 조회
+        liked_company_ids_query = db.query(LikeModel.wedding_company_id).filter(
+            LikeModel.user_id == user_id
+        ).all()
+        liked_company_ids = [comp_id for comp_id, in liked_company_ids_query]
 
-        return LikeStatusResponse(is_liked=like_exists)
+        if not liked_company_ids:
+            return [] # 찜한 웨딩홀이 없으면 빈 리스트 반환
+
+        # 2. 찜한 wedding_company_id 목록을 사용하여 WeddingCompany 상세 정보 조회
+        # 이때, Hall 및 HallPhoto 정보도 함께 eager loading (join)하여 N+1 쿼리 방지
+        wedding_companies = db.query(WeddingCompany).filter(
+            WeddingCompany.id.in_(liked_company_ids)
+        ).options(
+
+            joinedload(WeddingCompany.halls).joinedload(Hall.hall_photos)
+        ).all()
+
+        # 좋아요를 누른 순서대로 정렬하려면 추가적인 로직이 필요할 수 있습니다.
+        # 현재는 ID 순서 또는 DB 조회 순서로 반환됩니다.
+
+        return wedding_companies
+
     except Exception as e:
-        print(f"Error checking like status: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"찜 상태 확인에 실패했습니다: {e}")
+        print(f"Error fetching liked halls for user {user_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="찜한 웨딩홀 목록을 불러오는 중 서버 오류가 발생했습니다."
+        )
